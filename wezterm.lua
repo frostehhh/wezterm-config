@@ -22,7 +22,8 @@ config.inactive_pane_hsb = {
 }
 
 if is_windows then
-  config.window_background_opacity = 0.7
+  config.default_prog = { 'pwsh.exe', '-NoLogo' }
+  config.window_background_opacity = 0.9
   config.window_frame.font_size = 10.0
 end
 
