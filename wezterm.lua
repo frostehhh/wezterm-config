@@ -149,6 +149,16 @@ config.keys = {
       end),
     }),
   },
+  {
+    key = "Backspace",
+    mods = "CTRL",
+    action = act.SendString("\x17"),
+  },
+  {
+    key = "Enter",
+    mods = "SHIFT",
+    action = act.SendString("\n"),
+  },
 }
 
 return config
