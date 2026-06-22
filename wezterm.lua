@@ -34,7 +34,10 @@ if is_macos then
 end
 
 wezterm.on("update-right-status", function(window, pane)
-  window:set_right_status(window:active_workspace() .. "  ")
+  local pane_title = pane_titles[pane:pane_id()] or pane:get_title()
+  local workspace = window:active_workspace()
+  window:set_right_status("Pane: " .. pane_title .. " | Workspace: " .. workspace .. "  ")
+  window:set_left_status("")
 end)
 
 wezterm.on("format-tab-title", function(tab)
