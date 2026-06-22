@@ -3,6 +3,8 @@ local act = wezterm.action
 
 local config = wezterm.config_builder()
 
+local pane_titles = {}
+
 local is_windows = os.getenv("OS") and os.getenv("OS"):lower():find("windows")
 local is_macos = wezterm.target_triple:lower():find("darwin") ~= nil
 
@@ -35,8 +37,38 @@ wezterm.on("update-right-status", function(window, pane)
   window:set_right_status(window:active_workspace() .. "  ")
 end)
 
+wezterm.on("format-tab-title", function(tab)
+  local title = tab.tab_title
+  if not title or #title == 0 then
+    title = tab.active_pane.title
+  end
+  return title
+end)
+
 wezterm.on("augment-command-palette", function()
   return {
+    {
+      brief = "Tab: Rename current tab",
+      action = act.PromptInputLine({
+        description = "Rename tab:",
+        action = wezterm.action_callback(function(window, _, line)
+          if line and line ~= "" then
+            window:active_tab():set_title(line)
+          end
+        end),
+      }),
+    },
+    {
+      brief = "Pane: Rename current pane",
+      action = act.PromptInputLine({
+        description = "Rename pane:",
+        action = wezterm.action_callback(function(window, pane, line)
+          if line and line ~= "" then
+            pane_titles[pane:pane_id()] = line
+          end
+        end),
+      }),
+    },
     {
       brief = "Window | Workspace: Rename the current workspace",
       action = act.PromptInputLine({
@@ -88,6 +120,33 @@ wezterm.on("augment-command-palette", function()
     },
   }
 end)
+
+config.keys = {
+  {
+    key = "R",
+    mods = "CTRL|SHIFT",
+    action = act.PromptInputLine({
+      description = "Rename pane:",
+      action = wezterm.action_callback(function(window, pane, line)
+        if line and line ~= "" then
+          pane_titles[pane:pane_id()] = line
+        end
+      end),
+    }),
+  },
+  {
+    key = "E",
+    mods = "CTRL|SHIFT",
+    action = act.PromptInputLine({
+      description = "Rename tab:",
+      action = wezterm.action_callback(function(window, _, line)
+        if line and line ~= "" then
+          window:active_tab():set_title(line)
+        end
+      end),
+    }),
+  },
+}
 
 return config
 
