@@ -127,7 +127,7 @@ end)
 
 config.keys = {
   {
-    key = "R",
+    key = "E",
     mods = "CTRL|SHIFT",
     action = act.PromptInputLine({
       description = "Rename pane:",
@@ -139,7 +139,7 @@ config.keys = {
     }),
   },
   {
-    key = "E",
+    key = "R",
     mods = "CTRL|SHIFT",
     action = act.PromptInputLine({
       description = "Rename tab:",
