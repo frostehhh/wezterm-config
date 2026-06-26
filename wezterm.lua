@@ -165,44 +165,6 @@ wezterm.on("augment-command-palette", function()
         )
       end),
     },
-    {
-      brief = "Window | Workspace: Delete current workspace",
-      action = wezterm.action_callback(function(window, pane)
-        local current = wezterm.mux.get_active_workspace()
-        local all = wezterm.mux.all_workspaces()
-
-        if #all <= 1 then
-          return
-        end
-
-        local target
-        for _, ws in ipairs(all) do
-          if ws ~= current then
-            target = ws
-            break
-          end
-        end
-
-        for _, gui_win in ipairs(wezterm.gui.gui_windows()) do
-          if gui_win:active_workspace() == current then
-            gui_win:perform_action(
-              act.SwitchToWorkspace({ name = target }),
-              gui_win:active_pane()
-            )
-          end
-        end
-
-        for _, mux_win in ipairs(wezterm.mux.all_windows()) do
-          if mux_win:get_workspace() == current then
-            for _, tab in ipairs(mux_win:tabs()) do
-              for _, p in ipairs(tab:panes()) do
-                p:send_text("exit\r\n")
-              end
-            end
-          end
-        end
-      end),
-    },
   }
 end)
 
