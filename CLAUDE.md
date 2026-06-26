@@ -1,0 +1,1 @@
+Sync in this repo to changes to /Users/luiscapuyon/.config/wezterm
