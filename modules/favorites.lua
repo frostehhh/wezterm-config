@@ -1,7 +1,15 @@
 local wezterm = require("wezterm")
 local act = wezterm.action
+local utils = require("modules.utils")
 
 local M = {}
+
+local function normalize_path(path)
+  if utils.is_windows and path:sub(1, 1) == "/" then
+    return path:sub(2)
+  end
+  return path
+end
 
 M.pane_titles = {}
 
@@ -32,7 +40,7 @@ function M.apply()
         action = wezterm.action_callback(function(_, pane)
           local cwd_url = pane:get_current_working_dir()
           if not cwd_url then return end
-          local cwd = cwd_url.file_path
+          local cwd = normalize_path(cwd_url.file_path)
           local favs = load_favorites()
           for _, v in ipairs(favs) do
             if v == cwd then return end
