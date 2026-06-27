@@ -87,9 +87,15 @@ function M.apply()
             act.InputSelector({
               title = "Go to favorite directory",
               choices = choices,
-              action = wezterm.action_callback(function(_, p, id, _)
+              action = wezterm.action_callback(function(win, p, id, _)
                 if id then
-                  p:send_text('cd "' .. id .. '"\r')
+                  win:perform_action(
+                    act.Multiple({
+                      act.SendString('cd "' .. id .. '"'),
+                      act.SendKey({ key = "Enter" }),
+                    }),
+                    p
+                  )
                 end
               end),
             }),
