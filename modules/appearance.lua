@@ -1,9 +1,7 @@
 local wezterm = require("wezterm")
+local utils = require("modules.utils")
 
 local M = {}
-
-local is_windows = os.getenv("OS") and os.getenv("OS"):lower():find("windows")
-local is_macos = wezterm.target_triple:lower():find("darwin") ~= nil
 
 -- Source: https://www.nerdfonts.com/font-downloads
 local font = wezterm.font_with_fallback({
@@ -28,13 +26,13 @@ function M.apply(config)
     brightness = 0.5,
   }
 
-  if is_windows then
+  if utils.is_windows then
     config.default_prog = { "pwsh.exe", "-NoLogo" }
     config.window_background_opacity = 0.9
     config.window_frame.font_size = 10.0
   end
 
-  if is_macos then
+  if utils.is_macos then
     config.window_background_opacity = 0.8
     config.macos_window_background_blur = 50
     config.font_size = 15.0
