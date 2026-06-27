@@ -89,7 +89,7 @@ function M.apply()
               choices = choices,
               action = wezterm.action_callback(function(_, p, id, _)
                 if id then
-                  p:send_text('cd "' .. id .. '"\r\n')
+                  p:send_text('cd "' .. id .. '"\r')
                 end
               end),
             }),
