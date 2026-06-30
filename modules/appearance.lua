@@ -1,5 +1,6 @@
 local wezterm = require("wezterm")
 local utils = require("modules.utils")
+local colorscheme = require("modules.colorscheme")
 
 local M = {}
 
@@ -14,7 +15,7 @@ local frame_font = wezterm.font_with_fallback({
 })
 
 function M.apply(config)
-  config.color_scheme = "rose-pine-moon"
+  config.color_scheme = colorscheme.get_current()
   config.max_fps = 120
   config.font = font
   config.window_decorations = "INTEGRATED_BUTTONS|RESIZE"
