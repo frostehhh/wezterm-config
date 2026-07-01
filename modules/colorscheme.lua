@@ -108,46 +108,46 @@ open_scheme_picker = function(window, pane, mode, previous_scheme)
   )
 end
 
-function M.apply()
-  wezterm.on("augment-command-palette", function(window, _)
-    local s = load_schemes()
-    local current_scheme = M.get_current()
-    local current_mode_label = (current_scheme == s.light) and "Light" or "Dark"
-    local auto_brief = "Appearance | Toggle automatically adjusting to system's dark/light mode ("
-      .. (s.auto and "Enabled" or "Disabled") .. ")"
+function M.get_palette_commands(window)
+  local s = load_schemes()
+  local current_scheme = M.get_current()
+  local current_mode_label = (current_scheme == s.light) and "Light" or "Dark"
+  local auto_brief = "Appearance | Toggle automatically adjusting to system's dark/light mode ("
+    .. (s.auto and "Enabled" or "Disabled") .. ")"
 
-    return {
-      {
-        brief = "Appearance | Set color theme (Current: " .. current_scheme .. ")",
-        action = wezterm.action_callback(function(window, pane)
-          local previous_scheme = window:effective_config().color_scheme
-          open_scheme_picker(window, pane, s.mode, previous_scheme)
-        end),
-      },
-      {
-        brief = "Appearance | Toggle dark/light theme (Current: " .. current_mode_label .. ")",
-        action = wezterm.action_callback(function(window, _)
-          local saved = load_schemes()
-          local next_mode = (saved.mode == "dark") and "light" or "dark"
-          saved.mode = next_mode
-          save_schemes(saved)
-          window:set_config_overrides({ color_scheme = saved[next_mode] })
-        end),
-      },
-      {
-        brief = auto_brief,
-        action = wezterm.action_callback(function(window, _)
-          local saved = load_schemes()
-          saved.auto = not saved.auto
-          save_schemes(saved)
-          if saved.auto then
-            local scheme = system_is_dark() and saved.dark or saved.light
-            window:set_config_overrides({ color_scheme = scheme })
-          end
-        end),
-      },
-    }
-  end)
+  return {
+    {
+      brief = "Appearance | Set color theme (Current: " .. current_scheme .. ")",
+      action = wezterm.action_callback(function(win, pane)
+        local previous_scheme = win:effective_config().color_scheme
+        open_scheme_picker(win, pane, s.mode, previous_scheme)
+      end),
+    },
+    {
+      brief = "Appearance | Toggle dark/light theme (Current: " .. current_mode_label .. ")",
+      action = wezterm.action_callback(function(win, _)
+        local saved = load_schemes()
+        local next_mode = (saved.mode == "dark") and "light" or "dark"
+        saved.mode = next_mode
+        save_schemes(saved)
+        win:set_config_overrides({ color_scheme = saved[next_mode] })
+      end),
+    },
+    {
+      brief = auto_brief,
+      action = wezterm.action_callback(function(win, _)
+        local saved = load_schemes()
+        saved.auto = not saved.auto
+        save_schemes(saved)
+        if saved.auto then
+          local scheme = system_is_dark() and saved.dark or saved.light
+          win:set_config_overrides({ color_scheme = scheme })
+        end
+      end),
+    },
+  }
 end
+
+function M.apply() end
 
 return M

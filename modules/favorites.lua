@@ -32,79 +32,79 @@ local function save_favorites(favorites)
   end
 end
 
-function M.apply()
-  wezterm.on("augment-command-palette", function()
-    return {
-      {
-        brief = "Directory | Add current directory to favorites",
-        action = wezterm.action_callback(function(_, pane)
-          local cwd_url = pane:get_current_working_dir()
-          if not cwd_url then return end
-          local cwd = normalize_path(cwd_url.file_path)
-          local favs = load_favorites()
-          for _, v in ipairs(favs) do
-            if v == cwd then return end
-          end
-          table.insert(favs, cwd)
-          save_favorites(favs)
-        end),
-      },
-      {
-        brief = "Directory | Remove a favorite directory",
-        action = wezterm.action_callback(function(window, pane)
-          local favs = load_favorites()
-          if #favs == 0 then return end
-          local choices = {}
-          for i, v in ipairs(favs) do
-            table.insert(choices, { id = tostring(i), label = v })
-          end
-          window:perform_action(
-            act.InputSelector({
-              title = "Remove favorite directory",
-              choices = choices,
-              action = wezterm.action_callback(function(_, _, id, _)
-                if not id then return end
-                local idx = tonumber(id)
-                local updated = load_favorites()
-                table.remove(updated, idx)
-                save_favorites(updated)
-              end),
-            }),
-            pane
-          )
-        end),
-      },
-      {
-        brief = "Directory | Go to favorite directory",
-        action = wezterm.action_callback(function(window, pane)
-          local favs = load_favorites()
-          if #favs == 0 then return end
-          local choices = {}
-          for _, v in ipairs(favs) do
-            table.insert(choices, { id = v, label = v })
-          end
-          window:perform_action(
-            act.InputSelector({
-              title = "Go to favorite directory",
-              choices = choices,
-              action = wezterm.action_callback(function(win, p, id, _)
-                if id then
-                  win:perform_action(
-                    act.Multiple({
-                      act.SendString('cd "' .. id .. '"'),
-                      act.SendKey({ key = "Enter" }),
-                    }),
-                    p
-                  )
-                end
-              end),
-            }),
-            pane
-          )
-        end),
-      },
-    }
-  end)
+function M.get_palette_commands()
+  return {
+    {
+      brief = "Directory | Add current directory to favorites",
+      action = wezterm.action_callback(function(_, pane)
+        local cwd_url = pane:get_current_working_dir()
+        if not cwd_url then return end
+        local cwd = normalize_path(cwd_url.file_path)
+        local favs = load_favorites()
+        for _, v in ipairs(favs) do
+          if v == cwd then return end
+        end
+        table.insert(favs, cwd)
+        save_favorites(favs)
+      end),
+    },
+    {
+      brief = "Directory | Remove a favorite directory",
+      action = wezterm.action_callback(function(window, pane)
+        local favs = load_favorites()
+        if #favs == 0 then return end
+        local choices = {}
+        for i, v in ipairs(favs) do
+          table.insert(choices, { id = tostring(i), label = v })
+        end
+        window:perform_action(
+          act.InputSelector({
+            title = "Remove favorite directory",
+            choices = choices,
+            action = wezterm.action_callback(function(_, _, id, _)
+              if not id then return end
+              local idx = tonumber(id)
+              local updated = load_favorites()
+              table.remove(updated, idx)
+              save_favorites(updated)
+            end),
+          }),
+          pane
+        )
+      end),
+    },
+    {
+      brief = "Directory | Go to favorite directory",
+      action = wezterm.action_callback(function(window, pane)
+        local favs = load_favorites()
+        if #favs == 0 then return end
+        local choices = {}
+        for _, v in ipairs(favs) do
+          table.insert(choices, { id = v, label = v })
+        end
+        window:perform_action(
+          act.InputSelector({
+            title = "Go to favorite directory",
+            choices = choices,
+            action = wezterm.action_callback(function(win, p, id, _)
+              if id then
+                win:perform_action(
+                  act.Multiple({
+                    act.SendString('cd "' .. id .. '"'),
+                    act.SendKey({ key = "Enter" }),
+                  }),
+                  p
+                )
+              end
+            end),
+          }),
+          pane
+        )
+      end),
+    },
+  }
 end
+
+function M.apply() end
 
 return M
