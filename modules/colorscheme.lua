@@ -59,7 +59,8 @@ local function build_scheme_choices()
           table.insert(parts, { Text = "█" })
         end
       end
-      table.insert(parts, { Foreground = { Color = "Default" } })
+      table.insert(parts, { Foreground = { Color = s.foreground } })
+      table.insert(parts, { Background = { Color = s.background } })
       table.insert(parts, { Text = "  " .. name })
       label = wezterm.format(parts)
     else
