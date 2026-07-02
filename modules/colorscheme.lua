@@ -112,7 +112,10 @@ end
 function M.get_palette_commands(window)
   local s = load_schemes()
   local current_scheme = M.get_current()
-  local current_mode_label = (current_scheme == s.light) and "Light" or "Dark"
+  local effective_mode = s.auto and (system_is_dark() and "dark" or "light") or s.mode
+  local current_mode_label = s.auto
+    and ("auto/" .. (effective_mode == "light" and "Light" or "Dark"))
+    or (s.mode == "light" and "Light" or "Dark")
   local auto_brief = "Appearance | Toggle automatically adjusting to system's dark/light mode ("
     .. (s.auto and "Enabled" or "Disabled") .. ")"
 
@@ -128,7 +131,9 @@ function M.get_palette_commands(window)
       brief = "Appearance | Toggle dark/light theme (Current: " .. current_mode_label .. ")",
       action = wezterm.action_callback(function(win, _)
         local saved = load_schemes()
-        local next_mode = (saved.mode == "dark") and "light" or "dark"
+        local current_mode = saved.auto and (system_is_dark() and "dark" or "light") or saved.mode
+        local next_mode = current_mode == "dark" and "light" or "dark"
+        saved.auto = false
         saved.mode = next_mode
         save_schemes(saved)
         win:set_config_overrides({ color_scheme = saved[next_mode] })
@@ -149,6 +154,18 @@ function M.get_palette_commands(window)
   }
 end
 
-function M.apply() end
+function M.apply()
+  wezterm.on("update-right-status", function(window, _)
+    local s = load_schemes()
+    if not s.auto then return end
+    local is_dark = system_is_dark()
+    if wezterm.GLOBAL.colorscheme_last_dark == is_dark then return end
+    wezterm.GLOBAL.colorscheme_last_dark = is_dark
+    local scheme = is_dark and s.dark or s.light
+    local overrides = window:get_config_overrides() or {}
+    overrides.color_scheme = scheme
+    window:set_config_overrides(overrides)
+  end)
+end
 
 return M
