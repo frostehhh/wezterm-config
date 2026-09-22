@@ -18,9 +18,11 @@
 #         wezterm_theme_result = "CANCEL" | <base64 theme name>
 #         wezterm_theme_query  = <base64 typed query text>
 #
-# Called by modules/colorscheme.lua via act.SpawnCommandInNewTab. Must stay
-# executable (chmod +x) and dependency-free besides fzf/grep/sort/base64,
-# which are standard on macOS/Linux.
+# Called by modules/colorscheme.lua via act.SpawnCommandInNewTab, on macOS
+# and Linux (utils.is_windows == false). Must stay executable (chmod +x)
+# and dependency-free besides fzf/grep/sort/base64, which are standard on
+# macOS/Linux. Windows uses the PowerShell counterpart, theme_picker.ps1,
+# with the same three-subcommand contract.
 
 set -eu
 

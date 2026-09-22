@@ -1,5 +1,6 @@
 local wezterm = require("wezterm")
 local act = wezterm.action
+local utils = require("modules.utils")
 local theme_favorites = require("modules.theme_favorites")
 
 local M = {}
@@ -7,7 +8,8 @@ local M = {}
 local DEFAULTS = { dark = "rose-pine-moon", light = "rose-pine-dawn", mode = "dark", auto = false }
 local scheme_path = wezterm.home_dir .. "/.config/wezterm/colorscheme.json"
 local master_list_path = wezterm.home_dir .. "/.config/wezterm/.theme_master_list.txt"
-local theme_picker_script = wezterm.config_dir .. "/scripts/theme_picker.sh"
+local theme_picker_script = wezterm.config_dir
+  .. (utils.is_windows and "/scripts/theme_picker.ps1" or "/scripts/theme_picker.sh")
 
 local function load_schemes()
   local f = io.open(scheme_path, "r")
@@ -81,7 +83,9 @@ local function build_scheme_choices()
 end
 
 local function has_fzf()
-  local ok, result = pcall(wezterm.run_child_process, { "which", "fzf" })
+  -- `fzf --version` (rather than which/where, which differ by platform) is
+  -- a uniform presence check across macOS/Linux/Windows.
+  local ok, result = pcall(wezterm.run_child_process, { "fzf", "--version" })
   return ok and result
 end
 
@@ -184,18 +188,18 @@ open_scheme_picker_fzf = function(window, pane, mode, previous_scheme, initial_q
     query = nil,
   }
 
+  local picker_args = { "run", master_list_path, theme_favorites.scratch_path(), initial_query or "", initial_prev or previous_scheme or "" }
+  local args
+  if utils.is_windows then
+    args = { "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", theme_picker_script }
+    for _, a in ipairs(picker_args) do table.insert(args, a) end
+  else
+    args = { "/bin/sh", theme_picker_script }
+    for _, a in ipairs(picker_args) do table.insert(args, a) end
+  end
+
   window:perform_action(
-    act.SpawnCommandInNewTab({
-      args = {
-        "/bin/sh",
-        theme_picker_script,
-        "run",
-        master_list_path,
-        theme_favorites.scratch_path(),
-        initial_query or "",
-        initial_prev or previous_scheme or "",
-      },
-    }),
+    act.SpawnCommandInNewTab({ args = args }),
     pane
   )
 end
