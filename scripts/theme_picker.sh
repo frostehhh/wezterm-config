@@ -3,24 +3,37 @@
 #
 # Subcommands:
 #   list   <master_list_path> <favorites_path>
-#       Reads "<name>\t<ansi swatch>" lines from master_list_path (written
+#       Reads "<name>\t<ansi preview>" lines from master_list_path (written
 #       by modules/colorscheme.lua, since only Lua can read WezTerm's
-#       builtin color scheme data) and prints tab-delimited
-#       "<marker>\t<name>\t<swatch>\t<sortkey>" lines, favorites (from
-#       favorites_path, one name per line) marked with a star and sorted
-#       first.
+#       builtin color scheme data — <ansi preview> is a swatch of the
+#       theme's palette plus its name rendered in the theme's own fg/bg)
+#       and prints tab-delimited "<marker>\t<name>\t<preview>\t<sortkey>"
+#       lines, favorites (from favorites_path, one name per line) marked
+#       with a star and sorted first.
 #
 #   toggle <favorites_path> <theme_name>
 #       Adds theme_name to favorites_path if absent, removes it if present.
 #
 #   run    <master_list_path> <favorites_path> <query> <prev_theme>
-#       Runs fzf over `list`'s output, seeded with the given query text and
-#       cursor position (derived from prev_theme), with Shift+F (bind key
-#       "F") bound to `toggle` + a live `reload` — plain `f` stays free for
-#       filtering. Reports the result back to wezterm via OSC 1337
-#       SetUserVar escapes:
-#         wezterm_theme_result = "CANCEL" | <base64 theme name>
-#         wezterm_theme_query  = <base64 typed query text>
+#       Drives the whole list -> preview -> keep/back interaction as ONE
+#       loop in this single process/pane (deliberately NOT split across
+#       multiple wezterm-spawned panes — an earlier version re-opened a new
+#       pane for "Back to list" and round-tripped state through WezTerm;
+#       that pane's exit_behavior = CloseOnCleanExit closed it right after
+#       emitting its result, racing the "show the keep/back prompt" step
+#       against the pane already being gone, which is what made selecting
+#       a theme silently do nothing). Keeping it all in one script means
+#       "Back to list" is just `continue`ing this loop with the query/prev
+#       variables already in hand — no serialization, no race.
+#
+#       Reports back to wezterm via OSC 1337 SetUserVar escapes:
+#         wezterm_theme_preview = <base64 theme name>   -- sent on every
+#           Enter in the list, before the keep/back prompt, so WezTerm can
+#           apply it live; safe to send repeatedly, this pane stays open.
+#         wezterm_theme_result  = "CANCEL" | <base64 theme name>  -- sent
+#           once, right before exiting, once the user has actually
+#           confirmed (Keep) or given up (Esc from the list, or Esc from
+#           every keep/back prompt in a row with no Keep).
 #
 # Called by modules/colorscheme.lua via act.SpawnCommandInNewTab, on macOS
 # and Linux (utils.is_windows == false). Must stay executable (chmod +x)
@@ -32,16 +45,20 @@ set -eu
 
 self="$0"
 
+emit_uservar() {
+  printf '\033]1337;SetUserVar=%s=%s\007' "$1" "$(printf '%s' "$2" | base64 | tr -d '\n')"
+}
+
 cmd_list() {
   master="$1"
   favorites="$2"
   [ -f "$favorites" ] || : >"$favorites"
-  while IFS="$(printf '\t')" read -r name swatch; do
+  while IFS="$(printf '\t')" read -r name preview; do
     [ -n "$name" ] || continue
     if grep -qxF "$name" "$favorites" 2>/dev/null; then
-      printf '\xe2\x98\x85\t%s\t%s\t1\n' "$name" "$swatch"
+      printf '\xe2\x98\x85\t%s\t%s\t1\n' "$name" "$preview"
     else
-      printf ' \t%s\t%s\t0\n' "$name" "$swatch"
+      printf ' \t%s\t%s\t0\n' "$name" "$preview"
     fi
   done <"$master" | sort -t "$(printf '\t')" -k4,4r -k2,2
 }
@@ -64,37 +81,57 @@ cmd_run() {
   query="$3"
   prev="$4"
 
-  pos=1
-  if [ -n "$prev" ]; then
-    tab="$(printf '\t')"
-    found="$(cmd_list "$master" "$favorites" | grep -nF -- "${tab}${prev}${tab}" | head -n1 | cut -d: -f1 || true)"
-    [ -n "$found" ] && pos="$found"
-  fi
-
-  tmp_out="$(mktemp)"
-  trap 'rm -f "$tmp_out"' EXIT
-
-  if cmd_list "$master" "$favorites" | fzf \
-    --ansi \
-    --delimiter="$(printf '\t')" --with-nth=1,2,3 --nth=2 \
-    --print-query \
-    --prompt='Theme> ' \
-    --header='[Enter] preview  [Shift+F] favorite  [Esc] cancel' \
-    --query="$query" \
-    --bind "load:pos($pos)" \
-    --bind "F:execute-silent($self toggle \"$favorites\" {2})+reload($self list \"$master\" \"$favorites\")" \
-    >"$tmp_out"; then
-    typed_query="$(sed -n '1p' "$tmp_out")"
-    selected="$(sed -n '2p' "$tmp_out" | cut -f2)"
-    if [ -z "$selected" ]; then
-      printf '\033]1337;SetUserVar=wezterm_theme_result=%s\007' "$(printf '%s' "CANCEL" | base64 | tr -d '\n')"
-    else
-      printf '\033]1337;SetUserVar=wezterm_theme_result=%s\007' "$(printf '%s' "$selected" | base64 | tr -d '\n')"
-      printf '\033]1337;SetUserVar=wezterm_theme_query=%s\007' "$(printf '%s' "$typed_query" | base64 | tr -d '\n')"
+  while :; do
+    pos=1
+    if [ -n "$prev" ]; then
+      tab="$(printf '\t')"
+      found="$(cmd_list "$master" "$favorites" | grep -nF -- "${tab}${prev}${tab}" | head -n1 | cut -d: -f1 || true)"
+      [ -n "$found" ] && pos="$found"
     fi
-  else
-    printf '\033]1337;SetUserVar=wezterm_theme_result=%s\007' "$(printf '%s' "CANCEL" | base64 | tr -d '\n')"
-  fi
+
+    tmp_out="$(mktemp)"
+    if cmd_list "$master" "$favorites" | fzf \
+      --ansi \
+      --delimiter="$(printf '\t')" --with-nth=1,3 --nth=2 \
+      --print-query \
+      --prompt='Theme> ' \
+      --header='[Enter] preview  [Shift+F] favorite  [Esc] cancel' \
+      --query="$query" \
+      --bind "load:pos($pos)" \
+      --bind "F:execute-silent($self toggle \"$favorites\" {2})+reload($self list \"$master\" \"$favorites\")" \
+      >"$tmp_out"; then
+      query="$(sed -n '1p' "$tmp_out")"
+      selected="$(sed -n '2p' "$tmp_out" | cut -f2)"
+      rm -f "$tmp_out"
+    else
+      rm -f "$tmp_out"
+      emit_uservar wezterm_theme_result "CANCEL"
+      return
+    fi
+
+    if [ -z "$selected" ]; then
+      emit_uservar wezterm_theme_result "CANCEL"
+      return
+    fi
+
+    # Live-preview immediately. This pane stays open for the keep/back
+    # prompt below (and possibly more loop iterations after "Back to
+    # list"), so there's no race with it closing.
+    emit_uservar wezterm_theme_preview "$selected"
+
+    confirm="$(printf 'Keep this theme\nBack to list\n' | fzf \
+      --prompt="\"$selected\" > " \
+      --header='[Enter] confirm  [Esc] back to list' \
+      --info=hidden)" || confirm=""
+
+    if [ -z "$confirm" ] || [ "$confirm" = "Back to list" ]; then
+      prev="$selected"
+      continue
+    fi
+
+    emit_uservar wezterm_theme_result "$selected"
+    return
+  done
 }
 
 action="${1:-}"

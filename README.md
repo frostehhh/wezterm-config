@@ -73,23 +73,27 @@ ln -sf ~/.local/share/mise/installs/fzf/latest/fzf /opt/homebrew/bin/fzf
 ### What it looks like
 
 The fzf-backed picker opens in its own pane, themes sorted with favorites
-(⭐) first, then alphabetically, each row showing a small swatch of that
-theme's actual palette next to its name (rendered in real color, not just
-text):
+(⭐) first, then alphabetically. Each row shows a swatch of that theme's
+actual palette plus its own name rendered as a little chip in the theme's
+own foreground/background (both in real color, not just text):
 
 ```
 Theme> rose‸
   [Enter] preview  [Shift+F] favorite  [Esc] cancel
   4/247
-★ ██████ rose-pine
-★ ██████ rose-pine-moon
-  ██████ rose-pine-dawn
-> ██████ rosebox
+★ ██████  rose-pine
+★ ██████  rose-pine-moon
+  ██████  rose-pine-dawn
+> ██████  rosebox
 ```
 
-Pressing `Enter` on a highlighted theme applies it live and drops you into
-the Keep/Back prompt; choosing "Back to list" reopens fzf with `rose`
-still typed and the cursor back on `rosebox` — exactly where you left off.
+Pressing `Enter` on a highlighted theme applies it live, right there, and
+drops you into a small "Keep this theme" / "Back to list" prompt — still
+inside the same pane (list, preview and confirm are one continuous fzf
+session, not separate popups, so there's no flicker or tab-switching
+between steps). Choosing "Back to list" returns to the list with `rose`
+still typed and the cursor back on `rosebox` — exactly where you left off,
+since it's the same running process, not reconstructed from scratch.
 Pressing `Shift+F` on any row toggles its ⭐ immediately, without leaving
 the list — plain `f` still just filters, so it doesn't conflict with typing
 theme names that contain an "f" (e.g. searching "nightfox").

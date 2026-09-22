@@ -10,12 +10,25 @@
     theme_picker.ps1 toggle <favoritesPath> <themeName>
     theme_picker.ps1 run    <masterListPath> <favoritesPath> <query> <prevTheme>
 
-  `run` drives fzf.exe, seeded with the given query text and cursor position
-  (derived from prevTheme), with Shift+F (bind key "F") bound to `toggle`
-  + a live `reload` — plain `f` stays free for filtering.
-  Reports the result back to wezterm via OSC 1337 SetUserVar escapes:
-    wezterm_theme_result = "CANCEL" | <base64 theme name>
-    wezterm_theme_query  = <base64 typed query text>
+  `run` drives the whole list -> preview -> keep/back interaction as ONE
+  loop in this single process/pane (deliberately NOT split across multiple
+  wezterm-spawned panes - an earlier version re-opened a new pane for
+  "Back to list" and round-tripped state through WezTerm; that pane's
+  exit_behavior = CloseOnCleanExit closed it right after emitting its
+  result, racing the "show the keep/back prompt" step against the pane
+  already being gone, which is what made selecting a theme silently do
+  nothing). Keeping it all in one script means "Back to list" is just
+  looping with the query/prev variables already in hand - no
+  serialization, no race.
+
+  Reports back to wezterm via OSC 1337 SetUserVar escapes:
+    wezterm_theme_preview = <base64 theme name> - sent on every Enter in
+      the list, before the keep/back prompt, so WezTerm can apply it live;
+      safe to send repeatedly, this pane stays open.
+    wezterm_theme_result  = "CANCEL" | <base64 theme name> - sent once,
+      right before exiting, once the user has actually confirmed (Keep)
+      or given up (Esc from the list, or Esc from every keep/back prompt
+      in a row with no Keep).
 
   fzf on Windows runs bind/reload commands through cmd.exe by default, so
   `--with-shell` pins it to this same PowerShell so the bind strings below
@@ -34,9 +47,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Get-ThemeRows {
-  # Master list lines are "<name>`t<ansi swatch>", written by
-  # modules/colorscheme.lua (only Lua can read WezTerm's builtin color
-  # scheme data).
+  # Master list lines are "<name>`t<ansi preview>" (preview = a swatch of
+  # the theme's palette plus its name rendered in the theme's own fg/bg),
+  # written by modules/colorscheme.lua (only Lua can read WezTerm's
+  # builtin color scheme data).
   param([string]$Master, [string]$Favorites)
   if (-not (Test-Path -LiteralPath $Favorites)) { New-Item -ItemType File -Path $Favorites -Force | Out-Null }
   $favSet = @{}
@@ -45,13 +59,13 @@ function Get-ThemeRows {
   $rows = Get-Content -LiteralPath $Master | Where-Object { $_ -ne "" } | ForEach-Object {
     $parts = $_ -split "`t", 2
     $name = $parts[0]
-    $swatch = if ($parts.Count -gt 1) { $parts[1] } else { "" }
+    $preview = if ($parts.Count -gt 1) { $parts[1] } else { "" }
     $isFav = $favSet.ContainsKey($name)
     [PSCustomObject]@{
-      Marker = $(if ($isFav) { [char]0x2605 } else { " " })
-      Name   = $name
-      Swatch = $swatch
-      Sort   = $(if ($isFav) { 1 } else { 0 })
+      Marker  = $(if ($isFav) { [char]0x2605 } else { " " })
+      Name    = $name
+      Preview = $preview
+      Sort    = $(if ($isFav) { 1 } else { 0 })
     }
   }
   $rows | Sort-Object -Property @{Expression = "Sort"; Descending = $true }, @{Expression = "Name"; Descending = $false }
@@ -60,7 +74,7 @@ function Get-ThemeRows {
 function Invoke-List {
   param([string]$Master, [string]$Favorites)
   Get-ThemeRows -Master $Master -Favorites $Favorites | ForEach-Object {
-    "{0}`t{1}`t{2}`t{3}" -f $_.Marker, $_.Name, $_.Swatch, $_.Sort
+    "{0}`t{1}`t{2}`t{3}" -f $_.Marker, $_.Name, $_.Preview, $_.Sort
   }
 }
 
@@ -88,42 +102,61 @@ function Send-UserVar {
 function Invoke-Run {
   param([string]$Master, [string]$Favorites, [string]$Query, [string]$Prev)
 
-  $rows = @(Invoke-List -Master $Master -Favorites $Favorites)
-  $pos = 1
-  if ($Prev) {
-    for ($i = 0; $i -lt $rows.Count; $i++) {
-      if (($rows[$i] -split "`t")[1] -eq $Prev) { $pos = $i + 1; break }
-    }
-  }
-
   $self = $PSCommandPath
   $shellCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command"
   $toggleBind = "F:execute-silent(& '$self' toggle '$Favorites' {2})+reload(& '$self' list '$Master' '$Favorites')"
 
-  $fzfOutput = $rows -join "`n" | & fzf `
-    --ansi `
-    --delimiter="`t" --with-nth=1,2,3 --nth=2 `
-    --print-query `
-    --prompt="Theme> " `
-    --header="[Enter] preview  [Shift+F] favorite  [Esc] cancel" `
-    --query="$Query" `
-    --with-shell="$shellCmd" `
-    --bind "load:pos($pos)" `
-    --bind $toggleBind
+  while ($true) {
+    $rows = @(Invoke-List -Master $Master -Favorites $Favorites)
+    $pos = 1
+    if ($Prev) {
+      for ($i = 0; $i -lt $rows.Count; $i++) {
+        if (($rows[$i] -split "`t")[1] -eq $Prev) { $pos = $i + 1; break }
+      }
+    }
 
-  if ($LASTEXITCODE -ne 0 -or -not $fzfOutput -or $fzfOutput.Count -lt 2) {
-    Send-UserVar -Name "wezterm_theme_result" -Value "CANCEL"
-    return
-  }
+    $fzfOutput = $rows -join "`n" | & fzf `
+      --ansi `
+      --delimiter="`t" --with-nth=1,3 --nth=2 `
+      --print-query `
+      --prompt="Theme> " `
+      --header="[Enter] preview  [Shift+F] favorite  [Esc] cancel" `
+      --query="$Query" `
+      --with-shell="$shellCmd" `
+      --bind "load:pos($pos)" `
+      --bind $toggleBind
 
-  $typedQuery = $fzfOutput[0]
-  $selected = ($fzfOutput[1] -split "`t")[1]
+    if ($LASTEXITCODE -ne 0 -or -not $fzfOutput -or $fzfOutput.Count -lt 2) {
+      Send-UserVar -Name "wezterm_theme_result" -Value "CANCEL"
+      return
+    }
 
-  if ([string]::IsNullOrEmpty($selected)) {
-    Send-UserVar -Name "wezterm_theme_result" -Value "CANCEL"
-  } else {
+    $Query = $fzfOutput[0]
+    $selected = ($fzfOutput[1] -split "`t")[1]
+
+    if ([string]::IsNullOrEmpty($selected)) {
+      Send-UserVar -Name "wezterm_theme_result" -Value "CANCEL"
+      return
+    }
+
+    # Live-preview immediately. This pane stays open for the keep/back
+    # prompt below (and possibly more loop iterations after "Back to
+    # list"), so there's no race with it closing.
+    Send-UserVar -Name "wezterm_theme_preview" -Value $selected
+
+    $confirmOutput = @("Keep this theme", "Back to list") | & fzf `
+      --prompt="`"$selected`" > " `
+      --header="[Enter] confirm  [Esc] back to list" `
+      --info=hidden `
+      --with-shell="$shellCmd"
+
+    if ($LASTEXITCODE -ne 0 -or -not $confirmOutput -or $confirmOutput -eq "Back to list") {
+      $Prev = $selected
+      continue
+    }
+
     Send-UserVar -Name "wezterm_theme_result" -Value $selected
-    Send-UserVar -Name "wezterm_theme_query" -Value $typedQuery
+    return
   }
 }
 

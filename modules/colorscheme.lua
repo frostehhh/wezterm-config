@@ -57,7 +57,7 @@ end
 
 -- The ansi[2..7] foreground colors used for the small per-theme swatch,
 -- shared between the fallback InputSelector list (via wezterm.format) and
--- the fzf list (via raw ANSI escapes, see ansi_swatch() below).
+-- the fzf list (via raw ANSI escapes, see ansi_preview() below).
 local function swatch_colors(s)
   local colors = {}
   if s and s.ansi then
@@ -104,19 +104,31 @@ local function hex_to_rgb(hex)
   return r, g, b
 end
 
--- Same swatch as build_scheme_choices, but as raw ANSI truecolor escapes:
--- this goes into the plain-text master list scripts/theme_picker.{sh,ps1}
--- read and fzf renders (with --ansi) itself, since wezterm.format isn't
--- available outside Lua.
-local function ansi_swatch(s)
+-- Same swatch as build_scheme_choices, but as raw ANSI truecolor escapes,
+-- plus the theme's name rendered as a little chip in the theme's own
+-- fg/bg (matching build_scheme_choices' color-picker text-visibility
+-- fix): this goes into the plain-text master list
+-- scripts/theme_picker.{sh,ps1} read and fzf renders (with --ansi) itself,
+-- since wezterm.format isn't available outside Lua.
+local function ansi_preview(name, s)
   local colors = swatch_colors(s)
-  if #colors == 0 then return "" end
   local parts = {}
   for _, c in ipairs(colors) do
     local r, g, b = hex_to_rgb(c)
     if r then table.insert(parts, string.format("\27[38;2;%d;%d;%dm█", r, g, b)) end
   end
-  table.insert(parts, "\27[0m")
+  if #parts > 0 then table.insert(parts, "\27[0m") end
+
+  local fr, fg, fb = s and s.foreground and hex_to_rgb(s.foreground)
+  local br, bg, bb = s and s.background and hex_to_rgb(s.background)
+  if fr and br then
+    table.insert(
+      parts,
+      string.format(" \27[38;2;%d;%d;%dm\27[48;2;%d;%d;%dm %s \27[0m", fr, fg, fb, br, bg, bb, name)
+    )
+  else
+    table.insert(parts, " " .. name)
+  end
   return table.concat(parts)
 end
 
@@ -232,82 +244,48 @@ open_scheme_picker_fallback = function(window, pane, mode, previous_scheme)
   )
 end
 
--- Writes the current builtin scheme names + their ANSI swatch out for
+-- Writes the current builtin scheme names + their ANSI preview out for
 -- scripts/theme_picker.{sh,ps1} to read (only Lua can call
--- wezterm.get_builtin_color_schemes()), one "<name>\t<swatch>" per line.
+-- wezterm.get_builtin_color_schemes()), one "<name>\t<preview>" per line.
 local function export_master_list()
   local names, scheme_data = sorted_scheme_names()
   local f = io.open(master_list_path, "w")
   if not f then return end
   for _, name in ipairs(names) do
-    f:write(name .. "\t" .. ansi_swatch(scheme_data[name]) .. "\n")
+    f:write(name .. "\t" .. ansi_preview(name, scheme_data[name]) .. "\n")
   end
   f:close()
 end
 
--- Shows the existing live-preview "Keep this theme" / "Back to list" step,
--- kept as a native InputSelector: it's a static binary choice with no
--- filter/scroll state to preserve and no need for a favorite keybind, so
--- there's no benefit to routing it through fzf too.
-local function show_keep_or_back(win, pane, id, query, mode, previous_scheme, fzf_dir)
-  win:set_config_overrides({ color_scheme = id })
-  win:perform_action(
-    act.InputSelector({
-      title = 'Previewing "' .. id .. '"',
-      choices = {
-        { id = "keep", label = "Keep this theme" },
-        { id = "back", label = "Back to list" },
-      },
-      action = wezterm.action_callback(function(w, pp, choice, _)
-        if choice == "keep" then
-          local saved = load_schemes()
-          saved[mode] = id
-          saved.mode = mode
-          save_schemes(saved)
-          theme_favorites.import_scratch()
-        else
-          w:set_config_overrides({ color_scheme = previous_scheme })
-          theme_favorites.import_scratch()
-          open_scheme_picker_fzf(w, pp, mode, previous_scheme, query, id, fzf_dir)
-        end
-      end),
-    }),
-    pane
-  )
-end
-
-open_scheme_picker_fzf = function(window, pane, mode, previous_scheme, initial_query, initial_prev, fzf_dir)
+open_scheme_picker_fzf = function(window, pane, mode, previous_scheme, fzf_dir)
   export_master_list()
   theme_favorites.export_scratch()
 
   -- A single in-flight picker session at a time is all this flow supports;
   -- opening a new one simply replaces (and thus invalidates) any pending
-  -- session, so stray events from an already-closed pane are ignored once
-  -- `wezterm.GLOBAL.theme_picker_pending` has been cleared or overwritten.
-  --
-  -- `origin_pane` is the pane the picker was opened FROM (not the spawned
-  -- fzf pane): the user-var-changed handler below must show the Keep/Back
-  -- prompt there, since the spawned pane self-closes (exit_behavior =
-  -- CloseOnCleanExit) immediately after the script emits its OSC sequences
-  -- and exits 0 — performing an action against that closing/closed pane is
-  -- what made "selecting a theme" silently do nothing.
+  -- session. Everything — the list, the live preview, the keep/back
+  -- prompt, and "Back to list" looping with the filter/scroll state still
+  -- intact — happens inside ONE run of the spawned script/pane (see the
+  -- big comment atop scripts/theme_picker.sh for why: an earlier version
+  -- round-tripped "Back to list" through a fresh pane + Lua, which raced
+  -- that pane's auto-close against showing the next prompt and made
+  -- selecting a theme silently do nothing).
   wezterm.GLOBAL.theme_picker_pending = {
     mode = mode,
     previous_scheme = previous_scheme,
-    fzf_dir = fzf_dir,
-    origin_pane = pane,
-    query = nil,
   }
 
-  local picker_args = { "run", master_list_path, theme_favorites.scratch_path(), initial_query or "", initial_prev or previous_scheme or "" }
   local args
   if utils.is_windows then
     args = { "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", theme_picker_script }
-    for _, a in ipairs(picker_args) do table.insert(args, a) end
   else
     args = { "/bin/sh", theme_picker_script }
-    for _, a in ipairs(picker_args) do table.insert(args, a) end
   end
+  table.insert(args, "run")
+  table.insert(args, master_list_path)
+  table.insert(args, theme_favorites.scratch_path())
+  table.insert(args, "")
+  table.insert(args, previous_scheme or "")
 
   -- Explicitly set PATH for the spawned picker (rather than trusting
   -- whatever wezterm-gui itself inherited at launch) so `fzf` and the
@@ -326,25 +304,30 @@ end
 -- each time the picker (re)opens, so this handler must not be re-registered
 -- per invocation (wezterm.on has no matching "off") or callbacks would
 -- stack. State for the in-flight picker session lives in wezterm.GLOBAL.
-wezterm.on("user-var-changed", function(window, pane, name, value)
-  if name ~= "wezterm_theme_result" and name ~= "wezterm_theme_query" then return end
+--
+-- `set_config_overrides` is a per-WINDOW override, not per-pane, so the
+-- live preview doesn't need to target any particular pane — it applies
+-- regardless of which pane inside the window the event fired against.
+wezterm.on("user-var-changed", function(window, _pane, name, value)
+  if name == "wezterm_theme_preview" then
+    window:set_config_overrides({ color_scheme = value })
+    return
+  end
+  if name ~= "wezterm_theme_result" then return end
+
   local pending = wezterm.GLOBAL.theme_picker_pending
   if not pending then return end
+  wezterm.GLOBAL.theme_picker_pending = nil
 
-  if name == "wezterm_theme_result" then
-    if value == "CANCEL" then
-      wezterm.GLOBAL.theme_picker_pending = nil
-      return
-    end
-    pending.result = value
-  elseif name == "wezterm_theme_query" then
-    pending.query = value
+  if value == "CANCEL" then
+    window:set_config_overrides({ color_scheme = pending.previous_scheme })
+  else
+    local saved = load_schemes()
+    saved[pending.mode] = value
+    saved.mode = pending.mode
+    save_schemes(saved)
   end
-
-  if pending.result and pending.query ~= nil then
-    wezterm.GLOBAL.theme_picker_pending = nil
-    show_keep_or_back(window, pending.origin_pane, pending.result, pending.query, pending.mode, pending.previous_scheme, pending.fzf_dir)
-  end
+  theme_favorites.import_scratch()
 end)
 
 function M.get_palette_commands(window)
@@ -364,7 +347,7 @@ function M.get_palette_commands(window)
         local previous_scheme = win:effective_config().color_scheme
         local found, fzf_dir = resolve_fzf()
         if found then
-          open_scheme_picker_fzf(win, pane, s.mode, previous_scheme, "", previous_scheme, fzf_dir)
+          open_scheme_picker_fzf(win, pane, s.mode, previous_scheme, fzf_dir)
         else
           wezterm.log_warn("theme picker: fzf not found (checked PATH and common install locations), falling back to built-in picker")
           open_scheme_picker_fallback(win, pane, s.mode, previous_scheme)
