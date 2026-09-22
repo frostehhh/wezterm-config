@@ -119,8 +119,16 @@ local function ansi_preview(name, s)
   end
   if #parts > 0 then table.insert(parts, "\27[0m") end
 
-  local fr, fg, fb = s and s.foreground and hex_to_rgb(s.foreground)
-  local br, bg, bb = s and s.background and hex_to_rgb(s.background)
+  -- NOTE: hex_to_rgb(...) must not be chained through `and`/`or` here —
+  -- those operators truncate a multi-return call to its first result, so
+  -- `s and s.foreground and hex_to_rgb(...)` silently dropped g/b (only
+  -- fr got assigned, fg/fb stayed nil), which crashed string.format below
+  -- with "bad argument #3 (number expected, got nil)".
+  local fr, fg, fb, br, bg, bb
+  if s and s.foreground and s.background then
+    fr, fg, fb = hex_to_rgb(s.foreground)
+    br, bg, bb = hex_to_rgb(s.background)
+  end
   if fr and br then
     table.insert(
       parts,
