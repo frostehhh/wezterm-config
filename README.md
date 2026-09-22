@@ -27,28 +27,55 @@ shelling out to `fzf` in a spawned pane (`scripts/theme_picker.sh`, or
 `scripts/theme_picker.ps1` on Windows) instead. It's entirely optional:
 nothing else in this config depends on it.
 
+### How WezTerm finds `fzf`
+
+Every time you open the picker, `resolve_fzf()` in `modules/colorscheme.lua`
+looks for `fzf` in this order and stops at the first hit:
+
+1. **Run `fzf --version` directly**, using whatever `PATH` the **WezTerm
+   GUI process itself** was started with — not your shell's `PATH`. This is
+   the detail that trips people up: when WezTerm is launched from Dock,
+   Spotlight, or a double-click, it does *not* go through your shell's
+   startup files (`.zshrc`, `.bash_profile`, …), so anything that only
+   modifies `PATH` there — including version-manager shims (mise, asdf) —
+   is invisible to it, even though `fzf` works perfectly from a terminal.
+   Only WezTerm launched *from* an already-configured terminal inherits
+   that `PATH`.
+2. **If that fails, check a fixed list of common install directories
+   directly by absolute path** (bypassing `PATH` entirely): on
+   macOS/Linux, `/opt/homebrew/bin`, `/usr/local/bin`,
+   `~/.local/share/mise/shims`, then
+   `~/.local/share/mise/installs/fzf/latest`, in that order (see
+   `candidate_fzf_dirs()`); on Windows, mise's shims, Scoop's shims, then
+   Chocolatey's bin dir. Each candidate has to both exist *and* actually
+   run (`<dir>/fzf --version` succeeds) to count.
+3. **If a candidate matches**, that one directory is prepended to the
+   `PATH` used *only* for the spawned picker pane (`build_picker_path()`,
+   via `set_environment_variables` on the spawn action) — this never
+   touches WezTerm's own process `PATH`, just the one script invocation.
+4. **If nothing matches**, it logs a warning and falls back to the
+   built-in picker (see "Checking whether it's actually being used" below).
+
+This check isn't cached — it re-runs every time you open the picker — so
+installing `fzf` (or fixing its location) takes effect immediately, no
+WezTerm restart needed.
+
 ### Installing it
 
-Any of these put `fzf` somewhere this config's picker will find it:
+Any of these put `fzf` somewhere step 1 or step 2 above will find it:
 
 ```sh
-brew install fzf                 # Homebrew
-mise use -g fzf                  # mise (see note below)
-sudo apt install fzf              # Debian/Ubuntu
-sudo pacman -S fzf                # Arch
+brew install fzf                 # Homebrew -> /opt/homebrew/bin, already covered
+mise use -g fzf                  # mise -> only found via step 2's shims/installs fallback
+sudo apt install fzf              # Debian/Ubuntu -> /usr/bin, found via step 1's PATH check
+sudo pacman -S fzf                # Arch -> /usr/bin, found via step 1's PATH check
 ```
 
-**Note for version managers (mise, asdf, etc.):** these only add `fzf` to
-`PATH` inside shells that source their activation hook. A GUI-launched
-WezTerm (Dock, Spotlight, double-click) doesn't run through your shell rc
-files, so it won't see a version-manager shim even if your terminal does.
-The picker also checks a few common install locations directly
-(`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/share/mise/shims`,
-`~/.local/share/mise/installs/fzf/latest`) as a fallback — see
-`resolve_fzf()` in `modules/colorscheme.lua` — but the simplest fix if
-`fzf` still isn't found is a plain Homebrew/apt/pacman install, or
+If you use a version manager and the picker still isn't finding it (e.g.
+you're on a distro/path layout `candidate_fzf_dirs()` doesn't know about),
+the simplest fix is a plain Homebrew/apt/pacman install instead, or
 symlinking your version manager's `fzf` binary into `/opt/homebrew/bin`
-(no sudo needed, already on `PATH` everywhere):
+(no sudo needed on macOS, and it's one of step 2's known candidates):
 
 ```sh
 ln -sf ~/.local/share/mise/installs/fzf/latest/fzf /opt/homebrew/bin/fzf
