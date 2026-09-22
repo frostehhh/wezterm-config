@@ -73,16 +73,18 @@ ln -sf ~/.local/share/mise/installs/fzf/latest/fzf /opt/homebrew/bin/fzf
 ### What it looks like
 
 The fzf-backed picker opens in its own pane, themes sorted with favorites
-(⭐) first, then alphabetically:
+(⭐) first, then alphabetically, each row showing a small swatch of that
+theme's actual palette next to its name (rendered in real color, not just
+text):
 
 ```
 Theme> rose‸
   [Enter] preview  [Shift+F] favorite  [Esc] cancel
   4/247
-★ rose-pine
-★ rose-pine-moon
-  rose-pine-dawn
-> rosebox
+★ ██████ rose-pine
+★ ██████ rose-pine-moon
+  ██████ rose-pine-dawn
+> ██████ rosebox
 ```
 
 Pressing `Enter` on a highlighted theme applies it live and drops you into

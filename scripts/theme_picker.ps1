@@ -34,16 +34,23 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Get-ThemeRows {
+  # Master list lines are "<name>`t<ansi swatch>", written by
+  # modules/colorscheme.lua (only Lua can read WezTerm's builtin color
+  # scheme data).
   param([string]$Master, [string]$Favorites)
   if (-not (Test-Path -LiteralPath $Favorites)) { New-Item -ItemType File -Path $Favorites -Force | Out-Null }
   $favSet = @{}
   Get-Content -LiteralPath $Favorites | Where-Object { $_ -ne "" } | ForEach-Object { $favSet[$_] = $true }
 
   $rows = Get-Content -LiteralPath $Master | Where-Object { $_ -ne "" } | ForEach-Object {
-    $isFav = $favSet.ContainsKey($_)
+    $parts = $_ -split "`t", 2
+    $name = $parts[0]
+    $swatch = if ($parts.Count -gt 1) { $parts[1] } else { "" }
+    $isFav = $favSet.ContainsKey($name)
     [PSCustomObject]@{
       Marker = $(if ($isFav) { [char]0x2605 } else { " " })
-      Name   = $_
+      Name   = $name
+      Swatch = $swatch
       Sort   = $(if ($isFav) { 1 } else { 0 })
     }
   }
@@ -53,7 +60,7 @@ function Get-ThemeRows {
 function Invoke-List {
   param([string]$Master, [string]$Favorites)
   Get-ThemeRows -Master $Master -Favorites $Favorites | ForEach-Object {
-    "{0}`t{1}`t{2}" -f $_.Marker, $_.Name, $_.Sort
+    "{0}`t{1}`t{2}`t{3}" -f $_.Marker, $_.Name, $_.Swatch, $_.Sort
   }
 }
 
@@ -94,7 +101,8 @@ function Invoke-Run {
   $toggleBind = "F:execute-silent(& '$self' toggle '$Favorites' {2})+reload(& '$self' list '$Master' '$Favorites')"
 
   $fzfOutput = $rows -join "`n" | & fzf `
-    --delimiter="`t" --with-nth=1,2 --nth=2 `
+    --ansi `
+    --delimiter="`t" --with-nth=1,2,3 --nth=2 `
     --print-query `
     --prompt="Theme> " `
     --header="[Enter] preview  [Shift+F] favorite  [Esc] cancel" `

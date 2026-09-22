@@ -3,9 +3,12 @@
 #
 # Subcommands:
 #   list   <master_list_path> <favorites_path>
-#       Prints tab-delimited "<marker>\t<name>\t<sortkey>" lines for every
-#       theme in master_list_path, favorites (from favorites_path, one name
-#       per line) marked with a star and sorted first.
+#       Reads "<name>\t<ansi swatch>" lines from master_list_path (written
+#       by modules/colorscheme.lua, since only Lua can read WezTerm's
+#       builtin color scheme data) and prints tab-delimited
+#       "<marker>\t<name>\t<swatch>\t<sortkey>" lines, favorites (from
+#       favorites_path, one name per line) marked with a star and sorted
+#       first.
 #
 #   toggle <favorites_path> <theme_name>
 #       Adds theme_name to favorites_path if absent, removes it if present.
@@ -33,14 +36,14 @@ cmd_list() {
   master="$1"
   favorites="$2"
   [ -f "$favorites" ] || : >"$favorites"
-  while IFS= read -r name; do
+  while IFS="$(printf '\t')" read -r name swatch; do
     [ -n "$name" ] || continue
     if grep -qxF "$name" "$favorites" 2>/dev/null; then
-      printf '\xe2\x98\x85\t%s\t1\n' "$name"
+      printf '\xe2\x98\x85\t%s\t%s\t1\n' "$name" "$swatch"
     else
-      printf ' \t%s\t0\n' "$name"
+      printf ' \t%s\t%s\t0\n' "$name" "$swatch"
     fi
-  done <"$master" | sort -t "$(printf '\t')" -k3,3r -k2,2
+  done <"$master" | sort -t "$(printf '\t')" -k4,4r -k2,2
 }
 
 cmd_toggle() {
@@ -72,7 +75,8 @@ cmd_run() {
   trap 'rm -f "$tmp_out"' EXIT
 
   if cmd_list "$master" "$favorites" | fzf \
-    --delimiter="$(printf '\t')" --with-nth=1,2 --nth=2 \
+    --ansi \
+    --delimiter="$(printf '\t')" --with-nth=1,2,3 --nth=2 \
     --print-query \
     --prompt='Theme> ' \
     --header='[Enter] preview  [Shift+F] favorite  [Esc] cancel' \

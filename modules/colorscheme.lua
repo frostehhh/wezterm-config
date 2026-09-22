@@ -55,19 +55,31 @@ local function sorted_scheme_names()
   return names, scheme_data
 end
 
+-- The ansi[2..7] foreground colors used for the small per-theme swatch,
+-- shared between the fallback InputSelector list (via wezterm.format) and
+-- the fzf list (via raw ANSI escapes, see ansi_swatch() below).
+local function swatch_colors(s)
+  local colors = {}
+  if s and s.ansi then
+    for i = 2, 7 do
+      if s.ansi[i] then table.insert(colors, s.ansi[i]) end
+    end
+  end
+  return colors
+end
+
 local function build_scheme_choices()
   local names, scheme_data = sorted_scheme_names()
   local choices = {}
   for _, name in ipairs(names) do
     local s = scheme_data[name]
+    local colors = swatch_colors(s)
     local label
-    if s and s.ansi then
+    if #colors > 0 then
       local parts = {}
-      for i = 2, 7 do
-        if s.ansi[i] then
-          table.insert(parts, { Foreground = { Color = s.ansi[i] } })
-          table.insert(parts, { Text = "█" })
-        end
+      for _, c in ipairs(colors) do
+        table.insert(parts, { Foreground = { Color = c } })
+        table.insert(parts, { Text = "█" })
       end
       table.insert(parts, { Foreground = { Color = s.foreground } })
       table.insert(parts, { Background = { Color = s.background } })
@@ -80,6 +92,32 @@ local function build_scheme_choices()
     table.insert(choices, { id = name, label = label })
   end
   return choices
+end
+
+local function hex_to_rgb(hex)
+  if type(hex) ~= "string" then return nil end
+  hex = hex:gsub("#", "")
+  if #hex < 6 then return nil end
+  local r = tonumber(hex:sub(1, 2), 16)
+  local g = tonumber(hex:sub(3, 4), 16)
+  local b = tonumber(hex:sub(5, 6), 16)
+  return r, g, b
+end
+
+-- Same swatch as build_scheme_choices, but as raw ANSI truecolor escapes:
+-- this goes into the plain-text master list scripts/theme_picker.{sh,ps1}
+-- read and fzf renders (with --ansi) itself, since wezterm.format isn't
+-- available outside Lua.
+local function ansi_swatch(s)
+  local colors = swatch_colors(s)
+  if #colors == 0 then return "" end
+  local parts = {}
+  for _, c in ipairs(colors) do
+    local r, g, b = hex_to_rgb(c)
+    if r then table.insert(parts, string.format("\27[38;2;%d;%d;%dm█", r, g, b)) end
+  end
+  table.insert(parts, "\27[0m")
+  return table.concat(parts)
 end
 
 -- GUI-launched apps (Dock/Spotlight/double-click) do NOT get the PATH a
@@ -194,14 +232,15 @@ open_scheme_picker_fallback = function(window, pane, mode, previous_scheme)
   )
 end
 
--- Writes the current builtin scheme names out for scripts/theme_picker.sh
--- to read (only Lua can call wezterm.get_builtin_color_schemes()).
+-- Writes the current builtin scheme names + their ANSI swatch out for
+-- scripts/theme_picker.{sh,ps1} to read (only Lua can call
+-- wezterm.get_builtin_color_schemes()), one "<name>\t<swatch>" per line.
 local function export_master_list()
-  local names = sorted_scheme_names()
+  local names, scheme_data = sorted_scheme_names()
   local f = io.open(master_list_path, "w")
   if not f then return end
   for _, name in ipairs(names) do
-    f:write(name .. "\n")
+    f:write(name .. "\t" .. ansi_swatch(scheme_data[name]) .. "\n")
   end
   f:close()
 end
@@ -245,10 +284,18 @@ open_scheme_picker_fzf = function(window, pane, mode, previous_scheme, initial_q
   -- opening a new one simply replaces (and thus invalidates) any pending
   -- session, so stray events from an already-closed pane are ignored once
   -- `wezterm.GLOBAL.theme_picker_pending` has been cleared or overwritten.
+  --
+  -- `origin_pane` is the pane the picker was opened FROM (not the spawned
+  -- fzf pane): the user-var-changed handler below must show the Keep/Back
+  -- prompt there, since the spawned pane self-closes (exit_behavior =
+  -- CloseOnCleanExit) immediately after the script emits its OSC sequences
+  -- and exits 0 — performing an action against that closing/closed pane is
+  -- what made "selecting a theme" silently do nothing.
   wezterm.GLOBAL.theme_picker_pending = {
     mode = mode,
     previous_scheme = previous_scheme,
     fzf_dir = fzf_dir,
+    origin_pane = pane,
     query = nil,
   }
 
@@ -296,7 +343,7 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
 
   if pending.result and pending.query ~= nil then
     wezterm.GLOBAL.theme_picker_pending = nil
-    show_keep_or_back(window, pane, pending.result, pending.query, pending.mode, pending.previous_scheme, pending.fzf_dir)
+    show_keep_or_back(window, pending.origin_pane, pending.result, pending.query, pending.mode, pending.previous_scheme, pending.fzf_dir)
   end
 end)
 
