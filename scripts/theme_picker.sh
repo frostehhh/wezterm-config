@@ -50,17 +50,30 @@ emit_uservar() {
 }
 
 cmd_list() {
+  # A `while read` loop forking `grep` once per theme (1000+ builtin
+  # schemes) took ~4s per call here, and cmd_run calls this twice per
+  # loop iteration (pos lookup + the actual list) - single-pass awk does
+  # the same favorite lookup via an in-memory associative array instead,
+  # cutting that to milliseconds.
+  #
+  # NOTE: favfile is compared by FILENAME, not the classic `FNR==NR`
+  # idiom - FNR==NR is only reliable when file 1 (favorites) is
+  # non-empty; when it's empty (the common case, e.g. no favorites yet:
+  # freshly created via `: >"$favorites"` below), FNR and NR never
+  # diverge, so FNR==NR stays true for every line of the SECOND file too
+  # and silently swallows the entire theme list into the favorites
+  # branch, producing no output at all.
   master="$1"
   favorites="$2"
   [ -f "$favorites" ] || : >"$favorites"
-  while IFS="$(printf '\t')" read -r name preview; do
-    [ -n "$name" ] || continue
-    if grep -qxF "$name" "$favorites" 2>/dev/null; then
-      printf '\xe2\x98\x85\t%s\t%s\t1\n' "$name" "$preview"
-    else
-      printf ' \t%s\t%s\t0\n' "$name" "$preview"
-    fi
-  done <"$master" | sort -t "$(printf '\t')" -k4,4r -k2,2
+  awk -F'\t' -v favfile="$favorites" -v tab="$(printf '\t')" -v star="$(printf '\xe2\x98\x85')" '
+    FILENAME == favfile { fav[$0] = 1; next }
+    $1 == "" { next }
+    {
+      if ($1 in fav) { m = star; sk = 1 } else { m = " "; sk = 0 }
+      printf "%s%s%s%s%s%s%d\n", m, tab, $1, tab, $2, tab, sk
+    }
+  ' "$favorites" "$master" | sort -t "$(printf '\t')" -k4,4r -k2,2
 }
 
 cmd_toggle() {

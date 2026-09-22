@@ -255,7 +255,17 @@ end
 -- Writes the current builtin scheme names + their ANSI preview out for
 -- scripts/theme_picker.{sh,ps1} to read (only Lua can call
 -- wezterm.get_builtin_color_schemes()), one "<name>\t<preview>" per line.
+--
+-- WezTerm ships 1000+ builtin schemes, and computing ansi_preview() for
+-- every one of them (hex parsing + string.format + table concat, times 8
+-- colors) is real work to redo on every single picker open. Builtin
+-- schemes can't change without a WezTerm restart, so this is cached for
+-- the life of the process via wezterm.GLOBAL — every open after the
+-- first in a given session skips straight past this.
 local function export_master_list()
+  if wezterm.GLOBAL.theme_master_list_ready and file_exists(master_list_path) then
+    return
+  end
   local names, scheme_data = sorted_scheme_names()
   local f = io.open(master_list_path, "w")
   if not f then return end
@@ -263,6 +273,7 @@ local function export_master_list()
     f:write(name .. "\t" .. ansi_preview(name, scheme_data[name]) .. "\n")
   end
   f:close()
+  wezterm.GLOBAL.theme_master_list_ready = true
 end
 
 open_scheme_picker_fzf = function(window, pane, mode, previous_scheme, fzf_dir)
