@@ -1,29 +1,102 @@
 # wezterm-config
 Common config for WezTerm
 
-## Prerequisites
+## Color theme picker
 
-The color theme picker (command palette → "Set color theme") prefers
-[`fzf`](https://github.com/junegunn/fzf) for a richer picker: your typed
-filter text and scroll position are restored when you back out of the
-theme-preview step, and you can press `f` on a highlighted theme to
-favorite/unfavorite it without leaving the list. `fzf` must be resolvable on
-`PATH` for the process that runs WezTerm (a GUI app launch may not see PATH
-changes made only in shell rc files — a plain `mise activate`/shell alias
-isn't enough on its own; the `fzf` shim/binary directory needs to be on the
-GUI process's PATH, e.g. via `/etc/paths.d`, `launchctl setenv`, or
-installing `fzf` somewhere already on that PATH such as Homebrew).
+Command palette (`Ctrl+Shift+P`) → **"Set color theme"** opens a live
+preview picker for every builtin WezTerm color scheme. Picking one applies
+it immediately as a preview, then asks you to **Keep this theme** or **Back
+to list**.
 
-If `fzf` isn't found, the picker automatically falls back to WezTerm's
-built-in list (no scroll/filter restore, no `f` favorite key).
+There are two implementations behind that one command, chosen automatically:
 
-`brew install fzf`, or install via [mise](https://mise.jdx.dev/): `mise use -g fzf`.
+| | Built-in (always available) | fzf-backed (used when `fzf` is found) |
+|---|---|---|
+| Fuzzy filter | ✅ | ✅ |
+| Restores scroll position + typed filter text on "Back to list" | ❌ (always reopens at the top, filter cleared) | ✅ |
+| Press `f` on a highlighted theme to favorite it (⭐, sorts to top) | ❌ | ✅ |
 
-**Windows**: the picker spawns `scripts/theme_picker.ps1` (via
-`powershell.exe`) instead of the POSIX `scripts/theme_picker.sh` used on
-macOS/Linux — no separate setup beyond having `fzf.exe` on `PATH`. This path
-is implemented against fzf's documented Windows behavior (`--with-shell`
-pins fzf's bind/reload commands to PowerShell instead of its `cmd.exe`
-default) but hasn't been exercised on an actual Windows machine — if the
-`f` favorite key or "Back to list" restore misbehaves there, it's the first
-place to look.
+### What `fzf` is
+
+[`fzf`](https://github.com/junegunn/fzf) is a general-purpose command-line
+fuzzy finder. It's the only reason the richer picker is possible at all:
+WezTerm's own native picker widget (`InputSelector`) never exposes the
+scroll position or typed filter text back to the config, and has no way to
+bind an extra key like `f` — so those two features are implemented by
+shelling out to `fzf` in a spawned pane (`scripts/theme_picker.sh`, or
+`scripts/theme_picker.ps1` on Windows) instead. It's entirely optional:
+nothing else in this config depends on it.
+
+### Installing it
+
+Any of these put `fzf` somewhere this config's picker will find it:
+
+```sh
+brew install fzf                 # Homebrew
+mise use -g fzf                  # mise (see note below)
+sudo apt install fzf              # Debian/Ubuntu
+sudo pacman -S fzf                # Arch
+```
+
+**Note for version managers (mise, asdf, etc.):** these only add `fzf` to
+`PATH` inside shells that source their activation hook. A GUI-launched
+WezTerm (Dock, Spotlight, double-click) doesn't run through your shell rc
+files, so it won't see a version-manager shim even if your terminal does.
+The picker also checks a few common install locations directly
+(`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/share/mise/shims`,
+`~/.local/share/mise/installs/fzf/latest`) as a fallback — see
+`resolve_fzf()` in `modules/colorscheme.lua` — but the simplest fix if
+`fzf` still isn't found is a plain Homebrew/apt/pacman install, or
+symlinking your version manager's `fzf` binary into `/opt/homebrew/bin`
+(no sudo needed, already on `PATH` everywhere):
+
+```sh
+ln -sf ~/.local/share/mise/installs/fzf/latest/fzf /opt/homebrew/bin/fzf
+```
+
+### Checking whether it's actually being used
+
+- Open the picker (`Ctrl+Shift+P` → "Set color theme"). If it looks like
+  the mockup below (its own pane, a `Theme>` prompt, a `[f] favorite`
+  hint in the header), fzf is active. If instead you get WezTerm's plain
+  built-in list with no such header, it fell back.
+- From a shell: `which fzf` (or, inside WezTerm, just run `fzf` and see if
+  it launches).
+- Check the log for the fallback warning:
+  ```sh
+  tail -5 ~/.local/share/wezterm/wezterm-gui-log-*.txt
+  # look for: "theme picker: fzf not found (checked PATH and common
+  # install locations), falling back to built-in picker"
+  ```
+  (or open WezTerm's debug overlay, default `Ctrl+Shift+L`).
+
+### What it looks like
+
+The fzf-backed picker opens in its own pane, themes sorted with favorites
+(⭐) first, then alphabetically:
+
+```
+Theme> rose‸
+  [Enter] preview  [f] favorite  [Esc] cancel
+  4/247
+★ rose-pine
+★ rose-pine-moon
+  rose-pine-dawn
+> rosebox
+```
+
+Pressing `Enter` on a highlighted theme applies it live and drops you into
+the Keep/Back prompt; choosing "Back to list" reopens fzf with `rose`
+still typed and the cursor back on `rosebox` — exactly where you left off.
+Pressing `f` on any row toggles its ⭐ immediately, without leaving the list.
+
+### Windows
+
+The picker spawns `scripts/theme_picker.ps1` (via `powershell.exe`)
+instead of the POSIX `scripts/theme_picker.sh` used on macOS/Linux — no
+separate setup beyond having `fzf.exe` on `PATH`. This path is implemented
+against fzf's documented Windows behavior (`--with-shell` pins fzf's
+bind/reload commands to PowerShell instead of its `cmd.exe` default) but
+hasn't been exercised on an actual Windows machine — if the `f` favorite
+key or "Back to list" restore misbehaves there, it's the first place to
+look.

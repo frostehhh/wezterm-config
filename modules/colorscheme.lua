@@ -82,11 +82,74 @@ local function build_scheme_choices()
   return choices
 end
 
-local function has_fzf()
-  -- `fzf --version` (rather than which/where, which differ by platform) is
-  -- a uniform presence check across macOS/Linux/Windows.
-  local ok, result = pcall(wezterm.run_child_process, { "fzf", "--version" })
-  return ok and result
+-- GUI-launched apps (Dock/Spotlight/double-click) do NOT get the PATH a
+-- login shell builds from /etc/paths(.d) or a shell rc file's tool-version-
+-- manager hook (mise, etc) — only apps launched from an already-configured
+-- terminal do. So `fzf` can be missing from wezterm-gui's own inherited
+-- PATH even when it's perfectly installed and used every day from a
+-- terminal. To not depend on how WezTerm itself was launched, fall back to
+-- checking a handful of common install locations directly by absolute
+-- path before giving up.
+local function candidate_fzf_dirs()
+  if utils.is_windows then
+    return {
+      wezterm.home_dir .. "\\.local\\share\\mise\\shims",
+      wezterm.home_dir .. "\\scoop\\shims",
+      "C:\\ProgramData\\chocolatey\\bin",
+    }
+  end
+  return {
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    wezterm.home_dir .. "/.local/share/mise/shims",
+    wezterm.home_dir .. "/.local/share/mise/installs/fzf/latest",
+  }
+end
+
+local function file_exists(path)
+  local f = io.open(path, "r")
+  if f then
+    f:close()
+    return true
+  end
+  return false
+end
+
+-- Returns (found, dir): dir is nil when `fzf` already resolves via
+-- wezterm-gui's own inherited PATH (no override needed to spawn it), or the
+-- absolute directory it was found in via the candidate-path fallback.
+local function resolve_fzf()
+  local pok, success = pcall(wezterm.run_child_process, { "fzf", "--version" })
+  if pok and success then return true, nil end
+
+  local bin_name = utils.is_windows and "fzf.exe" or "fzf"
+  local sep = utils.is_windows and "\\" or "/"
+  for _, dir in ipairs(candidate_fzf_dirs()) do
+    if file_exists(dir .. sep .. bin_name) then
+      local pok2, success2 = pcall(wezterm.run_child_process, { dir .. sep .. bin_name, "--version" })
+      if pok2 and success2 then return true, dir end
+    end
+  end
+  return false, nil
+end
+
+-- Builds a PATH for the spawned picker script that's guaranteed to include
+-- both `fzf` (via fzf_dir, if it wasn't already on the inherited PATH) and
+-- the standard system utilities the script itself shells out to (grep,
+-- sort, mktemp, base64, ...), regardless of what wezterm-gui's own PATH
+-- happened to be at launch.
+local function build_picker_path(fzf_dir)
+  local sep = utils.is_windows and ";" or ":"
+  local dirs = {}
+  if fzf_dir then table.insert(dirs, fzf_dir) end
+  if not utils.is_windows then
+    for _, d in ipairs({ "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin" }) do
+      table.insert(dirs, d)
+    end
+  end
+  local base = os.getenv("PATH")
+  if base and base ~= "" then table.insert(dirs, base) end
+  return table.concat(dirs, sep)
 end
 
 -- Fallback picker (native act.InputSelector): used when `fzf` isn't on
@@ -147,7 +210,7 @@ end
 -- kept as a native InputSelector: it's a static binary choice with no
 -- filter/scroll state to preserve and no need for a favorite keybind, so
 -- there's no benefit to routing it through fzf too.
-local function show_keep_or_back(win, pane, id, query, mode, previous_scheme)
+local function show_keep_or_back(win, pane, id, query, mode, previous_scheme, fzf_dir)
   win:set_config_overrides({ color_scheme = id })
   win:perform_action(
     act.InputSelector({
@@ -166,7 +229,7 @@ local function show_keep_or_back(win, pane, id, query, mode, previous_scheme)
         else
           w:set_config_overrides({ color_scheme = previous_scheme })
           theme_favorites.import_scratch()
-          open_scheme_picker_fzf(w, pp, mode, previous_scheme, query, id)
+          open_scheme_picker_fzf(w, pp, mode, previous_scheme, query, id, fzf_dir)
         end
       end),
     }),
@@ -174,7 +237,7 @@ local function show_keep_or_back(win, pane, id, query, mode, previous_scheme)
   )
 end
 
-open_scheme_picker_fzf = function(window, pane, mode, previous_scheme, initial_query, initial_prev)
+open_scheme_picker_fzf = function(window, pane, mode, previous_scheme, initial_query, initial_prev, fzf_dir)
   export_master_list()
   theme_favorites.export_scratch()
 
@@ -185,6 +248,7 @@ open_scheme_picker_fzf = function(window, pane, mode, previous_scheme, initial_q
   wezterm.GLOBAL.theme_picker_pending = {
     mode = mode,
     previous_scheme = previous_scheme,
+    fzf_dir = fzf_dir,
     query = nil,
   }
 
@@ -198,8 +262,15 @@ open_scheme_picker_fzf = function(window, pane, mode, previous_scheme, initial_q
     for _, a in ipairs(picker_args) do table.insert(args, a) end
   end
 
+  -- Explicitly set PATH for the spawned picker (rather than trusting
+  -- whatever wezterm-gui itself inherited at launch) so `fzf` and the
+  -- script's own coreutils calls (grep/sort/mktemp/base64/...) resolve
+  -- regardless of how WezTerm was started. See resolve_fzf()/build_picker_path().
   window:perform_action(
-    act.SpawnCommandInNewTab({ args = args }),
+    act.SpawnCommandInNewTab({
+      args = args,
+      set_environment_variables = { PATH = build_picker_path(fzf_dir) },
+    }),
     pane
   )
 end
@@ -225,7 +296,7 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
 
   if pending.result and pending.query ~= nil then
     wezterm.GLOBAL.theme_picker_pending = nil
-    show_keep_or_back(window, pane, pending.result, pending.query, pending.mode, pending.previous_scheme)
+    show_keep_or_back(window, pane, pending.result, pending.query, pending.mode, pending.previous_scheme, pending.fzf_dir)
   end
 end)
 
@@ -244,10 +315,11 @@ function M.get_palette_commands(window)
       brief = "Appearance | Set color theme (Current: " .. current_scheme .. ")",
       action = wezterm.action_callback(function(win, pane)
         local previous_scheme = win:effective_config().color_scheme
-        if has_fzf() then
-          open_scheme_picker_fzf(win, pane, s.mode, previous_scheme, "", previous_scheme)
+        local found, fzf_dir = resolve_fzf()
+        if found then
+          open_scheme_picker_fzf(win, pane, s.mode, previous_scheme, "", previous_scheme, fzf_dir)
         else
-          wezterm.log_warn("theme picker: fzf not found on PATH, falling back to built-in picker")
+          wezterm.log_warn("theme picker: fzf not found (checked PATH and common install locations), falling back to built-in picker")
           open_scheme_picker_fallback(win, pane, s.mode, previous_scheme)
         end
       end),
