@@ -11,7 +11,8 @@
     theme_picker.ps1 run    <masterListPath> <favoritesPath> <query> <prevTheme>
 
   `run` drives fzf.exe, seeded with the given query text and cursor position
-  (derived from prevTheme), with `f` bound to `toggle` + a live `reload`.
+  (derived from prevTheme), with Shift+F (bind key "F") bound to `toggle`
+  + a live `reload` — plain `f` stays free for filtering.
   Reports the result back to wezterm via OSC 1337 SetUserVar escapes:
     wezterm_theme_result = "CANCEL" | <base64 theme name>
     wezterm_theme_query  = <base64 typed query text>
@@ -90,13 +91,13 @@ function Invoke-Run {
 
   $self = $PSCommandPath
   $shellCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command"
-  $toggleBind = "f:execute-silent(& '$self' toggle '$Favorites' {2})+reload(& '$self' list '$Master' '$Favorites')"
+  $toggleBind = "F:execute-silent(& '$self' toggle '$Favorites' {2})+reload(& '$self' list '$Master' '$Favorites')"
 
   $fzfOutput = $rows -join "`n" | & fzf `
     --delimiter="`t" --with-nth=1,2 --nth=2 `
     --print-query `
     --prompt="Theme> " `
-    --header="[Enter] preview  [f] favorite  [Esc] cancel" `
+    --header="[Enter] preview  [Shift+F] favorite  [Esc] cancel" `
     --query="$Query" `
     --with-shell="$shellCmd" `
     --bind "load:pos($pos)" `

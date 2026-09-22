@@ -14,7 +14,7 @@ There are two implementations behind that one command, chosen automatically:
 |---|---|---|
 | Fuzzy filter | ✅ | ✅ |
 | Restores scroll position + typed filter text on "Back to list" | ❌ (always reopens at the top, filter cleared) | ✅ |
-| Press `f` on a highlighted theme to favorite it (⭐, sorts to top) | ❌ | ✅ |
+| Press `Shift+F` on a highlighted theme to favorite it (⭐, sorts to top) | ❌ | ✅ |
 
 ### What `fzf` is
 
@@ -22,7 +22,7 @@ There are two implementations behind that one command, chosen automatically:
 fuzzy finder. It's the only reason the richer picker is possible at all:
 WezTerm's own native picker widget (`InputSelector`) never exposes the
 scroll position or typed filter text back to the config, and has no way to
-bind an extra key like `f` — so those two features are implemented by
+bind an extra key like Shift+F — so those two features are implemented by
 shelling out to `fzf` in a spawned pane (`scripts/theme_picker.sh`, or
 `scripts/theme_picker.ps1` on Windows) instead. It's entirely optional:
 nothing else in this config depends on it.
@@ -57,7 +57,7 @@ ln -sf ~/.local/share/mise/installs/fzf/latest/fzf /opt/homebrew/bin/fzf
 ### Checking whether it's actually being used
 
 - Open the picker (`Ctrl+Shift+P` → "Set color theme"). If it looks like
-  the mockup below (its own pane, a `Theme>` prompt, a `[f] favorite`
+  the mockup below (its own pane, a `Theme>` prompt, a `[Shift+F] favorite`
   hint in the header), fzf is active. If instead you get WezTerm's plain
   built-in list with no such header, it fell back.
 - From a shell: `which fzf` (or, inside WezTerm, just run `fzf` and see if
@@ -77,7 +77,7 @@ The fzf-backed picker opens in its own pane, themes sorted with favorites
 
 ```
 Theme> rose‸
-  [Enter] preview  [f] favorite  [Esc] cancel
+  [Enter] preview  [Shift+F] favorite  [Esc] cancel
   4/247
 ★ rose-pine
 ★ rose-pine-moon
@@ -88,7 +88,9 @@ Theme> rose‸
 Pressing `Enter` on a highlighted theme applies it live and drops you into
 the Keep/Back prompt; choosing "Back to list" reopens fzf with `rose`
 still typed and the cursor back on `rosebox` — exactly where you left off.
-Pressing `f` on any row toggles its ⭐ immediately, without leaving the list.
+Pressing `Shift+F` on any row toggles its ⭐ immediately, without leaving
+the list — plain `f` still just filters, so it doesn't conflict with typing
+theme names that contain an "f" (e.g. searching "nightfox").
 
 ### Windows
 
@@ -97,6 +99,6 @@ instead of the POSIX `scripts/theme_picker.sh` used on macOS/Linux — no
 separate setup beyond having `fzf.exe` on `PATH`. This path is implemented
 against fzf's documented Windows behavior (`--with-shell` pins fzf's
 bind/reload commands to PowerShell instead of its `cmd.exe` default) but
-hasn't been exercised on an actual Windows machine — if the `f` favorite
-key or "Back to list" restore misbehaves there, it's the first place to
-look.
+hasn't been exercised on an actual Windows machine — if the `Shift+F`
+favorite key or "Back to list" restore misbehaves there, it's the first
+place to look.

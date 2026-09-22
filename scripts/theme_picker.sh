@@ -12,8 +12,9 @@
 #
 #   run    <master_list_path> <favorites_path> <query> <prev_theme>
 #       Runs fzf over `list`'s output, seeded with the given query text and
-#       cursor position (derived from prev_theme), with `f` bound to `toggle`
-#       + a live `reload`. Reports the result back to wezterm via OSC 1337
+#       cursor position (derived from prev_theme), with Shift+F (bind key
+#       "F") bound to `toggle` + a live `reload` — plain `f` stays free for
+#       filtering. Reports the result back to wezterm via OSC 1337
 #       SetUserVar escapes:
 #         wezterm_theme_result = "CANCEL" | <base64 theme name>
 #         wezterm_theme_query  = <base64 typed query text>
@@ -74,10 +75,10 @@ cmd_run() {
     --delimiter="$(printf '\t')" --with-nth=1,2 --nth=2 \
     --print-query \
     --prompt='Theme> ' \
-    --header='[Enter] preview  [f] favorite  [Esc] cancel' \
+    --header='[Enter] preview  [Shift+F] favorite  [Esc] cancel' \
     --query="$query" \
     --bind "load:pos($pos)" \
-    --bind "f:execute-silent($self toggle \"$favorites\" {2})+reload($self list \"$master\" \"$favorites\")" \
+    --bind "F:execute-silent($self toggle \"$favorites\" {2})+reload($self list \"$master\" \"$favorites\")" \
     >"$tmp_out"; then
     typed_query="$(sed -n '1p' "$tmp_out")"
     selected="$(sed -n '2p' "$tmp_out" | cut -f2)"

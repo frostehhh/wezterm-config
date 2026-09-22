@@ -153,8 +153,8 @@ local function build_picker_path(fzf_dir)
 end
 
 -- Fallback picker (native act.InputSelector): used when `fzf` isn't on
--- PATH. Does not support restoring scroll/filter state or an in-list `f`
--- favorite key, since InputSelector exposes neither to Lua.
+-- PATH. Does not support restoring scroll/filter state or an in-list
+-- Shift+F favorite key, since InputSelector exposes neither to Lua.
 local open_scheme_picker_fallback
 local open_scheme_picker_fzf
 
