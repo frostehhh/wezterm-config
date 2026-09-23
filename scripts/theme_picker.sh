@@ -153,7 +153,15 @@ action="${1:-}"
 case "$action" in
   list) cmd_list "$@" ;;
   toggle) cmd_toggle "$@" ;;
-  run) cmd_run "$@" ;;
+  run)
+    cmd_run "$@"
+    # WezTerm closes the pane as soon as this exits, and a user var set by
+    # a pane that's already gone never reaches the Lua handler (the pick
+    # was silently not saved). Wait instead: the handler in
+    # modules/colorscheme.lua closes this pane once it has processed
+    # wezterm_theme_result. The timeout is only a fallback.
+    sleep 5
+    ;;
   *)
     echo "usage: theme_picker.sh {list|toggle|run} ..." >&2
     exit 1

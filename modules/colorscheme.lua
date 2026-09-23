@@ -5,7 +5,9 @@ local theme_favorites = require("modules.theme_favorites")
 
 local M = {}
 
-local DEFAULTS = { dark = "rose-pine-moon", light = "rose-pine-dawn", mode = "dark", auto = false }
+-- picker: "fzf" (fzf-backed picker, falling back to the built-in one when
+-- fzf can't be found) or "default" (always the built-in InputSelector).
+local DEFAULTS = { dark = "rose-pine-moon", light = "rose-pine-dawn", mode = "dark", auto = false, picker = "fzf" }
 local scheme_path = wezterm.home_dir .. "/.config/wezterm/colorscheme.json"
 local master_list_path = wezterm.home_dir .. "/.config/wezterm/.theme_master_list.txt"
 local theme_picker_script = wezterm.config_dir
@@ -23,6 +25,7 @@ local function load_schemes()
     light = type(data.light) == "string"  and data.light or DEFAULTS.light,
     mode  = type(data.mode)  == "string"  and data.mode  or DEFAULTS.mode,
     auto  = type(data.auto)  == "boolean" and data.auto  or DEFAULTS.auto,
+    picker = (data.picker == "fzf" or data.picker == "default") and data.picker or DEFAULTS.picker,
   }
 end
 
@@ -39,12 +42,19 @@ local function system_is_dark()
   return wezterm.gui.get_appearance():find("Dark") ~= nil
 end
 
+-- The dark/light slot currently on screen: with auto enabled that's
+-- decided by the system appearance, not by s.mode, so the pickers must
+-- save into this slot or the pick lands in the one that isn't shown.
+local function effective_mode(s)
+  if s.auto then
+    return system_is_dark() and "dark" or "light"
+  end
+  return s.mode == "light" and "light" or "dark"
+end
+
 function M.get_current()
   local s = load_schemes()
-  if s.auto then
-    return system_is_dark() and s.dark or s.light
-  end
-  return s[s.mode] or s.dark
+  return s[effective_mode(s)] or s.dark
 end
 
 local function sorted_scheme_names()
@@ -324,10 +334,17 @@ end
 -- per invocation (wezterm.on has no matching "off") or callbacks would
 -- stack. State for the in-flight picker session lives in wezterm.GLOBAL.
 --
+-- The script can't just emit wezterm_theme_result and exit: the pane closes
+-- on exit, and a user var set by a pane that's already gone never reaches
+-- this handler — the pick was then never saved, so colorscheme.json (and
+-- the palette's "Set color theme (Current: ...)") kept the old theme while
+-- the preview override made it look applied. The script instead waits
+-- after emitting the result, and this handler closes the pane once done.
+--
 -- `set_config_overrides` is a per-WINDOW override, not per-pane, so the
 -- live preview doesn't need to target any particular pane — it applies
 -- regardless of which pane inside the window the event fired against.
-wezterm.on("user-var-changed", function(window, _pane, name, value)
+wezterm.on("user-var-changed", function(window, pane, name, value)
   if name == "wezterm_theme_preview" then
     window:set_config_overrides({ color_scheme = value })
     return
@@ -345,17 +362,17 @@ wezterm.on("user-var-changed", function(window, _pane, name, value)
     saved[pending.mode] = value
     saved.mode = pending.mode
     save_schemes(saved)
+    window:set_config_overrides({ color_scheme = value })
   end
   theme_favorites.import_scratch()
+  window:perform_action(act.CloseCurrentPane({ confirm = false }), pane)
 end)
 
 function M.get_palette_commands(window)
   local s = load_schemes()
   local current_scheme = M.get_current()
-  local effective_mode = s.auto and (system_is_dark() and "dark" or "light") or s.mode
-  local current_mode_label = s.auto
-    and ("auto/" .. (effective_mode == "light" and "Light" or "Dark"))
-    or (s.mode == "light" and "Light" or "Dark")
+  local current_mode = effective_mode(s)
+  local current_mode_label = (s.auto and "auto/" or "") .. (current_mode == "light" and "Light" or "Dark")
   local auto_brief = "Appearance | Toggle automatically adjusting to system's dark/light mode ("
     .. (s.auto and "Enabled" or "Disabled") .. ")"
 
@@ -364,21 +381,34 @@ function M.get_palette_commands(window)
       brief = "Appearance | Set color theme (Current: " .. current_scheme .. ")",
       action = wezterm.action_callback(function(win, pane)
         local previous_scheme = win:effective_config().color_scheme
+        local saved = load_schemes()
+        local mode = effective_mode(saved)
+        if saved.picker == "default" then
+          open_scheme_picker_fallback(win, pane, mode, previous_scheme)
+          return
+        end
         local found, fzf_dir = resolve_fzf()
         if found then
-          open_scheme_picker_fzf(win, pane, s.mode, previous_scheme, fzf_dir)
+          open_scheme_picker_fzf(win, pane, mode, previous_scheme, fzf_dir)
         else
           wezterm.log_warn("theme picker: fzf not found (checked PATH and common install locations), falling back to built-in picker")
-          open_scheme_picker_fallback(win, pane, s.mode, previous_scheme)
+          open_scheme_picker_fallback(win, pane, mode, previous_scheme)
         end
+      end),
+    },
+    {
+      brief = "Appearance | Toggle color picker (Current: " .. (s.picker == "default" and "Default" or "fzf") .. ")",
+      action = wezterm.action_callback(function(_, _)
+        local saved = load_schemes()
+        saved.picker = saved.picker == "default" and "fzf" or "default"
+        save_schemes(saved)
       end),
     },
     {
       brief = "Appearance | Toggle dark/light theme (Current: " .. current_mode_label .. ")",
       action = wezterm.action_callback(function(win, _)
         local saved = load_schemes()
-        local current_mode = saved.auto and (system_is_dark() and "dark" or "light") or saved.mode
-        local next_mode = current_mode == "dark" and "light" or "dark"
+        local next_mode = effective_mode(saved) == "dark" and "light" or "dark"
         saved.auto = false
         saved.mode = next_mode
         save_schemes(saved)

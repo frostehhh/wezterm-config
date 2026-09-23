@@ -8,7 +8,10 @@ preview picker for every builtin WezTerm color scheme. Picking one applies
 it immediately as a preview, then asks you to **Keep this theme** or **Back
 to list**.
 
-There are two implementations behind that one command, chosen automatically:
+There are two implementations behind that one command. By default the
+fzf-backed one is used whenever `fzf` is found; **"Appearance | Toggle color
+picker (Current: fzf | Default)"** switches between that and always using
+the built-in one (saved as `picker` in `colorscheme.json`):
 
 | | Built-in (always available) | fzf-backed (used when `fzf` is found) |
 |---|---|---|
