@@ -1,140 +1,93 @@
 # wezterm-config
-Common config for WezTerm
+
+Personal [WezTerm](https://wezterm.org/) configuration. This repo mirrors
+`~/.config/wezterm` — changes made here are synced into that path.
+
+## Features
+
+- Color theme picker with live preview, fuzzy search, and favorites
+- Automatic dark/light mode that follows the OS appearance
+- Favorite working directories, jumpable from the command palette
+- Pane, tab, and workspace renaming
+- Custom tab titles and a status bar showing pane title + workspace
+- Cross-platform tweaks for macOS and Windows (opacity/blur, fonts, default shell)
+
+## Requirements
+
+- [WezTerm](https://wezterm.org/)
+- A [Nerd Font](https://www.nerdfonts.com/) — this config uses Hack Nerd Font,
+  falling back to JetBrains Mono
+- [`fzf`](https://github.com/junegunn/fzf) — optional, enables the enhanced
+  theme picker (favorites, scroll/filter restore); everything else works
+  without it
+
+## Setup
+
+Point WezTerm's config directory at this repo, either by cloning it directly
+into `~/.config/wezterm`, or by symlinking:
+
+```sh
+ln -sfn "$(pwd)/wezterm-config" ~/.config/wezterm
+```
+
+There's no build step — WezTerm reloads these files automatically on save,
+or you can trigger a reload manually from the command palette.
+
+## Commands & keybindings
+
+| Command name | Shortcut | Description |
+|---|---|---|
+| Command palette | `Ctrl+Shift+P` | Opens WezTerm's command palette — entry point for every palette-only command below |
+| Rename current pane | `Ctrl+Shift+E` (also in palette) | Prompts for a new pane title, pre-filled with the current one |
+| Rename current tab | `Ctrl+Shift+R` (also in palette) | Prompts for a new tab title, pre-filled with the current one |
+| Rename the current workspace | Command palette only | Prompts for a new name and renames the active workspace |
+| Add current directory to favorites | Command palette only | Saves the active pane's working directory to your favorites |
+| Go to favorite directory | Command palette only | Picks a saved favorite and `cd`s the active pane into it |
+| Remove a favorite directory | Command palette only | Picks a saved favorite and removes it from your list |
+| Set color theme | Command palette only | Opens the theme picker (fzf-backed if available, otherwise WezTerm's built-in picker) |
+| Toggle color picker (fzf / Default) | Command palette only | Switches the theme picker backend, saved for next time |
+| Toggle dark/light theme | Command palette only | Flips between your saved dark and light scheme, disabling auto mode |
+| Toggle automatic dark/light mode | Command palette only | Keeps the color scheme in sync with the OS appearance as it changes |
+
+While the theme picker itself is open, a few extra keys apply:
+
+| Key | Action |
+|---|---|
+| `Enter` | Preview the highlighted theme, then confirm to keep it |
+| `Shift+F` | Toggle the highlighted theme as a favorite (⭐, fzf picker only) |
+| `Esc` | Cancel and restore the previous theme |
 
 ## Color theme picker
 
-Command palette (`Ctrl+Shift+P`) → **"Set color theme"** opens a live
-preview picker for every builtin WezTerm color scheme. Picking one applies
-it immediately as a preview, then asks you to **Keep this theme** or **Back
-to list**.
-
-There are two implementations behind that one command. By default the
-fzf-backed one is used whenever `fzf` is found; **"Appearance | Toggle color
-picker (Current: fzf | Default)"** switches between that and always using
-the built-in one (saved as `picker` in `colorscheme.json`):
+By default, the fzf-backed picker is used whenever `fzf` is found on the
+system (checked at launch time, cached for the session); otherwise it falls
+back to WezTerm's built-in picker automatically.
 
 | | Built-in (always available) | fzf-backed (used when `fzf` is found) |
 |---|---|---|
 | Fuzzy filter | ✅ | ✅ |
-| Restores scroll position + typed filter text on "Back to list" | ❌ (always reopens at the top, filter cleared) | ✅ |
-| Press `Shift+F` on a highlighted theme to favorite it (⭐, sorts to top) | ❌ | ✅ |
+| Restores scroll position + typed filter on "Back to list" | ❌ | ✅ |
+| Favorite a theme with `Shift+F` | ❌ | ✅ |
 
-### What `fzf` is
-
-[`fzf`](https://github.com/junegunn/fzf) is a general-purpose command-line
-fuzzy finder. It's the only reason the richer picker is possible at all:
-WezTerm's own native picker widget (`InputSelector`) never exposes the
-scroll position or typed filter text back to the config, and has no way to
-bind an extra key like Shift+F — so those two features are implemented by
-shelling out to `fzf` in a spawned pane (`scripts/theme_picker.sh`, or
-`scripts/theme_picker.ps1` on Windows) instead. It's entirely optional:
-nothing else in this config depends on it.
-
-### How WezTerm finds `fzf`
-
-Every time you open the picker, `resolve_fzf()` in `modules/colorscheme.lua`
-looks for `fzf` in this order and stops at the first hit:
-
-1. **Run `fzf --version` directly**, using whatever `PATH` the **WezTerm
-   GUI process itself** was started with — not your shell's `PATH`. This is
-   the detail that trips people up: when WezTerm is launched from Dock,
-   Spotlight, or a double-click, it does *not* go through your shell's
-   startup files (`.zshrc`, `.bash_profile`, …), so anything that only
-   modifies `PATH` there — including version-manager shims (mise, asdf) —
-   is invisible to it, even though `fzf` works perfectly from a terminal.
-   Only WezTerm launched *from* an already-configured terminal inherits
-   that `PATH`.
-2. **If that fails, check a fixed list of common install directories
-   directly by absolute path** (bypassing `PATH` entirely): on
-   macOS/Linux, `/opt/homebrew/bin`, `/usr/local/bin`,
-   `~/.local/share/mise/shims`, then
-   `~/.local/share/mise/installs/fzf/latest`, in that order (see
-   `candidate_fzf_dirs()`); on Windows, mise's shims, Scoop's shims, then
-   Chocolatey's bin dir. Each candidate has to both exist *and* actually
-   run (`<dir>/fzf --version` succeeds) to count.
-3. **If a candidate matches**, that one directory is prepended to the
-   `PATH` used *only* for the spawned picker pane (`build_picker_path()`,
-   via `set_environment_variables` on the spawn action) — this never
-   touches WezTerm's own process `PATH`, just the one script invocation.
-4. **If nothing matches**, it logs a warning and falls back to the
-   built-in picker (see "Checking whether it's actually being used" below).
-
-This check isn't cached — it re-runs every time you open the picker — so
-installing `fzf` (or fixing its location) takes effect immediately, no
-WezTerm restart needed.
-
-### Installing it
-
-Any of these put `fzf` somewhere step 1 or step 2 above will find it:
+WezTerm looks for `fzf` using the GUI process's own `PATH`, then a short list
+of common install locations (Homebrew, mise shims, etc.) as a fallback — so
+version-manager shims that only live in your shell's `PATH` may not be
+picked up automatically. Installing it normally is usually enough:
 
 ```sh
-brew install fzf                 # Homebrew -> /opt/homebrew/bin, already covered
-mise use -g fzf                  # mise -> only found via step 2's shims/installs fallback
-sudo apt install fzf              # Debian/Ubuntu -> /usr/bin, found via step 1's PATH check
-sudo pacman -S fzf                # Arch -> /usr/bin, found via step 1's PATH check
+brew install fzf     # or: mise use -g fzf
 ```
 
-If you use a version manager and the picker still isn't finding it (e.g.
-you're on a distro/path layout `candidate_fzf_dirs()` doesn't know about),
-the simplest fix is a plain Homebrew/apt/pacman install instead, or
-symlinking your version manager's `fzf` binary into `/opt/homebrew/bin`
-(no sudo needed on macOS, and it's one of step 2's known candidates):
+If it still isn't detected, symlinking the binary into `/opt/homebrew/bin`
+(or another common location) resolves it.
 
-```sh
-ln -sf ~/.local/share/mise/installs/fzf/latest/fzf /opt/homebrew/bin/fzf
-```
+## Platform notes
 
-### Checking whether it's actually being used
-
-- Open the picker (`Ctrl+Shift+P` → "Set color theme"). If it looks like
-  the mockup below (its own pane, a `Theme>` prompt, a `[Shift+F] favorite`
-  hint in the header), fzf is active. If instead you get WezTerm's plain
-  built-in list with no such header, it fell back.
-- From a shell: `which fzf` (or, inside WezTerm, just run `fzf` and see if
-  it launches).
-- Check the log for the fallback warning:
-  ```sh
-  tail -5 ~/.local/share/wezterm/wezterm-gui-log-*.txt
-  # look for: "theme picker: fzf not found (checked PATH and common
-  # install locations), falling back to built-in picker"
-  ```
-  (or open WezTerm's debug overlay, default `Ctrl+Shift+L`).
-
-### What it looks like
-
-The fzf-backed picker opens in its own pane, themes sorted with favorites
-(⭐) first, then alphabetically. Each row shows a swatch of that theme's
-actual palette plus its own name rendered as a little chip in the theme's
-own foreground/background (both in real color, not just text):
-
-```
-Theme> rose‸
-  [Enter] preview  [Shift+F] favorite  [Esc] cancel
-  4/247
-★ ██████  rose-pine
-★ ██████  rose-pine-moon
-  ██████  rose-pine-dawn
-> ██████  rosebox
-```
-
-Pressing `Enter` on a highlighted theme applies it live, right there, and
-drops you into a small "Keep this theme" / "Back to list" prompt — still
-inside the same pane (list, preview and confirm are one continuous fzf
-session, not separate popups, so there's no flicker or tab-switching
-between steps). Choosing "Back to list" returns to the list with `rose`
-still typed and the cursor back on `rosebox` — exactly where you left off,
-since it's the same running process, not reconstructed from scratch.
-Pressing `Shift+F` on any row toggles its ⭐ immediately, without leaving
-the list — plain `f` still just filters, so it doesn't conflict with typing
-theme names that contain an "f" (e.g. searching "nightfox").
-
-### Windows
-
-The picker spawns `scripts/theme_picker.ps1` (via `powershell.exe`)
-instead of the POSIX `scripts/theme_picker.sh` used on macOS/Linux — no
-separate setup beyond having `fzf.exe` on `PATH`. This path is implemented
-against fzf's documented Windows behavior (`--with-shell` pins fzf's
-bind/reload commands to PowerShell instead of its `cmd.exe` default) but
-hasn't been exercised on an actual Windows machine — if the `Shift+F`
-favorite key or "Back to list" restore misbehaves there, it's the first
-place to look.
+- **macOS** — 80% window opacity with background blur, larger default font
+  sizes.
+- **Windows** — uses `pwsh.exe` as the default shell, 90% window opacity, and
+  spawns `scripts/theme_picker.ps1` (via `powershell.exe`) instead of the
+  POSIX `theme_picker.sh` for the fzf picker. This path is implemented
+  against fzf's documented Windows behavior but hasn't been verified on an
+  actual Windows machine — if `Shift+F` or the "Back to list" restore
+  misbehave there, start there.
