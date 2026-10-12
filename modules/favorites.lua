@@ -13,6 +13,24 @@ end
 
 M.pane_titles = {}
 
+-- Transient message shown in the right status bar (see events.lua).
+M.notice = nil
+local NOTICE_SECONDS = 4
+
+function M.notify(window, text)
+  M.notice = { text = text, expires = os.time() + NOTICE_SECONDS }
+  local escaped = text:gsub("\\", "\\\\"):gsub('"', '\\"')
+  wezterm.background_child_process({
+    "osascript",
+    "-e",
+    'display notification "' .. escaped .. '" with title "WezTerm"',
+  })
+  window:set_right_status(wezterm.format({
+    { Attribute = { Intensity = "Bold" } },
+    { Text = text .. "  " },
+  }))
+end
+
 local favorites_path = wezterm.home_dir .. "/.config/wezterm/favorite_dirs.json"
 
 local function load_favorites()
@@ -36,16 +54,23 @@ function M.get_palette_commands()
   return {
     {
       brief = "Directory | Add current directory to favorites",
-      action = wezterm.action_callback(function(_, pane)
+      action = wezterm.action_callback(function(window, pane)
         local cwd_url = pane:get_current_working_dir()
-        if not cwd_url then return end
+        if not cwd_url then
+          M.notify(window, "Could not determine current directory")
+          return
+        end
         local cwd = normalize_path(cwd_url.file_path)
         local favs = load_favorites()
         for _, v in ipairs(favs) do
-          if v == cwd then return end
+          if v == cwd then
+            M.notify(window, "Already in favorites: " .. cwd)
+            return
+          end
         end
         table.insert(favs, cwd)
         save_favorites(favs)
+        M.notify(window, "Added to favorites: " .. cwd)
       end),
     },
     {

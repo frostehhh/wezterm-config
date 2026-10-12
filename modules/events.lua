@@ -7,6 +7,14 @@ local M = {}
 
 function M.apply()
   wezterm.on("update-right-status", function(window, pane)
+    local notice = favorites.notice
+    if notice and os.time() < notice.expires then
+      window:set_right_status(wezterm.format({
+        { Attribute = { Intensity = "Bold" } },
+        { Text = notice.text .. "  " },
+      }))
+      return
+    end
     local pane_title = favorites.pane_titles[pane:pane_id()] or pane:get_title()
     local workspace = window:active_workspace()
     window:set_right_status("Pane: " .. pane_title .. " | Workspace: " .. workspace .. "  ")
